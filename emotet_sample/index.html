@@ -19,7 +19,7 @@
 
     <h1>Overview</h1>
     <p>
-        I was doing a challenge exercise from Oalabs to retrieve the C2 config from an unpacked Emotet sample, as a way to practice utilising emulation. I decided to a write up on my process of doing this, as such this is not a full analysis/ report of the sample.
+        I was doing a challenge exercise from Oalabs to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice utilising emulation. I decided to a write up on my process of doing this, as such this is not a full analysis/ report of the sample.
     </p>
     <p>
         I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.
@@ -292,12 +292,12 @@ main()
     <img src="screenshots/xor_key.png" style="width: 30%;" />
 
     <p>
-        This allows us to do a hunt algorithm with any of the hashes we acquired earlier. If the hashing algorithm is in HashDB's database as well as the string that the hash resolves to, HashDB hunt algorithm will return the hashing algorithm in use.
+        This allows us to do call HashDB's 'Hunt Algorithm' with any of the hashes we acquired earlier. If the hashing algorithm is in HashDB's database as well as the string that the hash resolves to, HashDB Hunt Algorithm will return the hashing algorithm in use.
     </p> 
 
     <p>
-        If the hashing algorithm was not in HashDB's database, we could write it ourselves and upload it to them, which would give us access to their large string database.
-        However the algorithm hunt returned an algorithm named 'emotet', so we are now ready to resolve all the APIs.
+        If the hashing algorithm was not in HashDB's database, an option would be to write the algorithm and upload it to them, which would provide access to their large string database.
+        However the algorithm hunt returned an algorithm named 'emotet', so I am now ready to resolve all the APIs.
     </p>
 
     <p>
