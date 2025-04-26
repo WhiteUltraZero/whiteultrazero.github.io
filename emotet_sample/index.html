@@ -620,7 +620,7 @@ def emulate_ip_resolver(code, address):
 
 def emulate_func(uc: Uc, code: bytes, code_base_ptr: int):
     # Allocating memory for the code, and writing it
-    allocation_base = code_base_ptr &amp; 0b1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000_0000 # alligns the allocation base with 0x1000, was getting unicorn memory errors, not sure if this is required, or if it was the issue.
+    allocation_base = code_base_ptr &amp; 0b1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000_0000
     uc.mem_map(allocation_base, ALLOCATION_CHUNK_SIZE, UC_PROT_ALL)
     uc.mem_write(allocation_base, b'\x00' * ALLOCATION_CHUNK_SIZE)
     allocation_end = allocation_base + ALLOCATION_CHUNK_SIZE
@@ -632,11 +632,10 @@ def emulate_func(uc: Uc, code: bytes, code_base_ptr: int):
         allocation_end += ALLOCATION_CHUNK_SIZE
     uc.mem_write(code_base_ptr, code)
 
-    # initialising some stack space. Not doing any memory checks with this. Not sure how you even could, and the stack space required by a function should never exceed this
     STACK_SPACE = 0x2000
     uc.mem_map(STACK_SPACE, ALLOCATION_CHUNK_SIZE, UC_PROT_ALL)
     uc.mem_write(STACK_SPACE, b'\x00' * ALLOCATION_CHUNK_SIZE)
-    uc.reg_write(UC_X86_REG_ESP, STACK_SPACE + ALLOCATION_CHUNK_SIZE // 2) # intialises the stack pointer in the middle of the allocated stack space - Makes it easy to intialise arguements if required.
+    uc.reg_write(UC_X86_REG_ESP, STACK_SPACE + ALLOCATION_CHUNK_SIZE // 2)
     
     print(&quot;Starting emulating main func&quot;)
     uc.emu_start(code_base_ptr, code_base_ptr + len(code), timeout = 0, count = 0)
