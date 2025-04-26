@@ -96,7 +96,7 @@ find_gs()
     <img src="screenshots/dll_resolution.png" style="width: 70%;" />
     <img src="screenshots/api_hash_xref.png" style="width: 70%;" />
     <p>
-        Looking into the hashing algorithm used for the dll names, it did not look too complex, and as such almost certainly a custom algorithm. 
+        Looking into the hashing algorithm used for the DLL names, it did not look too complex, and as such almost certainly a custom algorithm. 
         <i>
         (A standard hashing algorithm will typically look much more complex, such that it can be properly cryptographically secure).
         </i>
@@ -365,20 +365,20 @@ apis_addr_int = [(int(pair[0], 16), pair[1]) for pair in resolved_apis] # Conver
 
 
 def rename_funcs(addr_name: list[tuple]):
-for pair in addr_name:
-    address, name = pair
-    
-    func = idaapi.get_func(address)
-    func_start = func.start_ea
-    set_name(func_start, name + "_Wrapper")
-    
-    address = next_head(address)
-    instruction = print_insn_mnem(address)
-    while instruction != 'jmp' and instruction != 'call': # it either called or jumped to the API
-        address = next_head(address)
-        instruction = print_insn_mnem(address)
-    print(hex(address))
-    set_cmt(address, name, 0)
+  for pair in addr_name:
+      address, name = pair
+      
+      func = idaapi.get_func(address)
+      func_start = func.start_ea
+      set_name(func_start, name + "_Wrapper")
+      
+      address = next_head(address)
+      instruction = print_insn_mnem(address)
+      while instruction != 'jmp' and instruction != 'call': # it either called or jumped to the API
+          address = next_head(address)
+          instruction = print_insn_mnem(address)
+      print(hex(address))
+      set_cmt(address, name, 0)
 
 def main():
 rename_funcs(apis_addr_int)
