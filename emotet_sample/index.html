@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Extracing Emotets C2 Configuration</title>
-  <!-- Highlight.js styles (you can change 'dark' to other themes) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
-  <!-- Highlight.js script -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
   <script>hljs.highlightAll();</script>
   <style>
@@ -24,7 +22,7 @@
         I was doing challenge exercise from Oalabs to retrieve the C2 config from an unpacked Emotet sample, as a way to practice utilising emulation. I decided to a write up on my process of doing this, as such this is not a full analysis/ report of the sample.
     </p>
     <p>
-        I am pretty sure the idea was to emulate the config de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.
+        I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.
     </p>
 
     <h2>Sample</h2>
@@ -41,19 +39,19 @@
       
     <h2>Identifying Win APIs</h2>
     <p>
-        Since the goal was to extract the C2 config, this implies the sample must include some kind of networking functionality.
+        Since the goal was to extract the C2 configuration, this implies the sample must include some kind of networking functionality.
     </p>
     <p>
         My approach to find the config data was to look at all the code surrounding network API calls, then I could trace the arguments provided to these and hopefully find the configuration info.
     </p>
     <p>
-        Looking at the imports for this sample it did not contain a single import. This is a clear sign that this sample utilises API hashing, or at the very least walks the Export table of each module it is retrieving functions from.
+        Looking at the imports for this sample, it did not contain a single import. This is a clear sign that this sample utilises API hashing, or at the very least walks the Export table of each module it is retrieving functions from.
     </p>
     <i>
         (For those unfamiliar, a module loaded into a processes memory space will expose the functions it exports through an export table. Although this is typically intended to be used by the Windows loader or APIs such as GetProcAddress, it can be manually parsed, as a stealthy technique to resolve imports)
     </i>
     <p>
-        So to find the API hashing function I decided to hunt for references to TEB , as this is required to access the PEB, which is often used to find the base address of modules that have been loaded in processes memory space. As such I used the script below to scan all the assembly instructions to see if it contained 'gs' (If this was a 32 bit sample we would use 'fs').
+        So to find the API hashing function I decided to hunt for references to TEB , as this is required to access the PEB, which is often used to find the base address of modules that have been loaded in processes memory space. As such I used the script below to scan all the assembly instructions to see if it contained 'gs' (If this was a 32 bit sample I would use 'fs').
     </p>
     <i>
         (The gs/fs segment register of all threads will contain a pointer to the TEB)
@@ -87,12 +85,12 @@ find_gs()
     </code></pre>
 
     <p>
-        Which showed one reference
+        Which showed one reference:
     </p>
     <img src="screenshots/peb.png" style="width: 70%;" />
 
     <p>
-        Back tracing this function, I got to this function - Looking at the xrefs it is called 108 times, with a variety of arguments passed to it that looked like hash values.
+        Back tracing this function, I got to this function - Looking at the cross references to it, it is called 108 times, with a variety of arguments that looked like hash values.
     </p>
     <img src="screenshots/api_resolve_wrapper.png" style="width: 70%;" />
     <img src="screenshots/dll_resolution.png" style="width: 70%;" />
@@ -107,7 +105,7 @@ find_gs()
     <img src="screenshots/dll_hashing.png" style="width: 70%;" />
   
     <p>
-        The hashing function for resolving the Win API function names is a separate custom hashing function (to the one used for the dll names).
+        The hashing function for resolving the Win API function names is a separate custom hashing function (to the one used for the DLL names).
     </p>
     <img src="screenshots/api_hashing.png" style="width: 70%;" />
 
@@ -164,25 +162,25 @@ print(all_dll_api_pairs)
     </p>
 
     <p>
-        The standard approach to resolve these hashes would either be to use HashDB, or re-implement the hashing function and brute force them with them with a Win API wordlist.
+        The standard approach to resolve these hashes would either be to use HashDB, or re-implement the hashing function and brute force them with them with a API wordlist.
     </p>
 
     <p>
-        But I wanted to try something different - I wanted to emulate the entire wrapper function (including the DLL table walking etc, and extract the dll names and win API names), through dumpulator.
+        But I wanted to try something different - I wanted to emulate the entire wrapper function (including the DLL table walking etc, and extract the DLL names and API names), through Dumpulator.
     </p>
 
     <p>
-        This would mean I wouldn't need to get a wordlist to brute force it, I could just plug in the hashes I acquired and that should be enough, however spoilers - It only sort of worked.
+        This would mean I would not need to get a wordlist to perform a brute force, I could just plug in the hashes I acquired and that should be enough, however spoilers - It only sort of worked.
     </p>
 
     <p>
-        So to do this I need to do some additional reverse engineering, to figure out where I want to hook, and what register or memory location I want to read. As such I marked up this function a bit more.
+        To do this I needed to do some additional reverse engineering, to figure out where I want to hook, and what registers or memory locations I want to read. As such I marked up this function a bit more.
     </p>
 
     <img src="screenshots/marked_up.png" style="width: 70%;" />
 
     <p>
-        After marking up the decompiled output, I want to correlate it with the assembly code and see if I can easily retrieve the index into the name table.
+        After marking up the decompiled output, I want to correlate it with the assembly code and see if I can easily retrieve the index into the export name table.
     </p>
 
     <p>
@@ -190,17 +188,17 @@ print(all_dll_api_pairs)
     </p>
 
     <p>
-        To use emulation to resolve this, I have to do extract the export table entry passed into <b>win_api_hashing_func</b> each loop, and hopefully when it exits, the most recent value we have extracted will be the API of interest.
+        To use emulation to resolve this, I have to extract the export table entry passed into <b>win_api_hashing_func</b> each loop, and hopefully when it exits, the most recent value we have extracted will be the API of interest.
     </p>
 
     <p>
-        The easiest way for this I found was reading the contents of the rcx register at the address <b>0x07FF9B6F791C4</b> in <b>win_api_hashing_func</b> as it is directly reading from the export name table at the address.
+        The easiest way for this I found was reading the contents of the rcx register at the address <b>0x07FF9B6F791C4</b> in <b>win_api_hashing_func</b> as it is directly reading from the export name table at this address.
     </p>
 
     <img src="screenshots/hashing_func.png" style="width: 70%;" />
 
     <p>
-        This can be done by hooking dumpulator through its unicorn underpinning, and retrieving a pointer to the string each loop. Once the emulation instance finishes and the retrieved value should be the most recent export name table entry, hopefully pointing to the API name string. (Not sure if you are meant to do this as the unicorn instance is labelled as a private attribute, but it worked).
+        This can be done by hooking Dumpulator through its Unicorn underpinning, and retrieving a pointer to the string each loop. Once the emulation instance finishes the retrieved value should be the most recent export name table entry, hopefully pointing to the API name string. (Not sure if you are meant to do this as the unicorn instance is labelled as a private attribute, but it worked).
     </p>
 
     <p>
@@ -270,11 +268,11 @@ main()
     </code></pre>
 
     <p>
-        An issue with this approach is that if the emulation instance can't actually successfully resolve the hash, then we also cannot retrieve it. This is what occurred here as it only extracted the Win APIs from kernel32.dll and ntdll.dl, however I counted around 5 unique dll name hashes provided to the hashing function. 
+        An issue with this approach is that if the emulation instance can not successfully resolve the hash, then we also cannot retrieve it. This is what occurred here as it only extracted the APIs from kernel32.dll and ntdll.dl, however I counted around 5 unique DLL name hashes provided to the hashing function. 
     </p>
 
     <i>
-        (Once I extracted the modules later, and looking at the MiniDump contents, these modules were not loaded in the process in the MiniDump - The sample would likely make a call to LoadLibrary to load these modules before attempting to retrieve their functions. - This fact likely makes attempting to resolve Win API hashing in this manner unreliable. Taking a MiniDump after the calls to LoadLibrary might allow this technique to work for all APIs.)
+        (Once I extracted the modules later, I noted that these modules were not loaded in the process in the MiniDump instance - The sample would likely make a call to LoadLibrary to load these modules before attempting to retrieve their functions. - This fact likely makes attempting to resolve API hashing in this manner unreliable. Taking a MiniDump after the calls to LoadLibrary might allow this technique to work for all APIs.)
     </i>
 
     <p>
@@ -351,7 +349,7 @@ print(resolved_apis)
 
     
     <p>
-        After resolving the Win APIs, I investigated what was actually done with the retrieved function pointer. It appears all the Win API pointers will get written to a global variable (.data section), however this appears to be just be storing the pointer in a cache, as there is no other xrefs to these addresses <i>(although it is possible they indexed into from a base address, in which they wouldn't show up as cross references)</i>
+        After resolving the Win APIs, I investigated what was actually done with the retrieved function pointer. It appears that the retrieved API pointers get written to a global variable (.data section), however this appears to be just be storing the pointer in a cache as there is no other xrefs to these addresses <i>(although it is possible they indexed into from a base address, in which they wouldn't show up as cross references)</i>.
     </p>
 
     <p>
@@ -395,13 +393,13 @@ main()
 
     <img src="screenshots/internet_functions.png" style="width: 70%;" />
 
-    <p>Of these functions, I think InternetConnectW is a good candidate to investigate as the MSDN outlines it takes an argument <i>'lpszServerName'</i>:</p>
+    <p>Of these functions, I think InternetConnectW is a good candidate to investigate as it's MSDN entry outlines it takes an argument <i>'lpszServerName'</i>:</p>
 
     <pre>
         "Pointer to a null-terminated string that specifies the host name of an Internet server. Alternately, the string can contain the IP number of the site, in ASCII dotted-decimal format (for example, 11.0.1.45)."
     </pre>
 
-    <p>So going to the wrapper function, I can see it receives an argument that is subsequently passed in as argument 'lpszServerName' to InternetConnectW.</p>
+    <p>So going to the wrapper function, I can see it receives an argument that is subsequently passed in as the argument 'lpszServerName' to InternetConnectW.</p>
 
     <img src="screenshots/connectW.png" style="width: 70%;" />
 
@@ -409,7 +407,7 @@ main()
 
     <img src="screenshots/arg_init.png" style="width: 70%;" />
 
-    <p>The variable is not initialised at compile time, however, it appears that the variable contains a pointer to a structure containing the C2 data, based on how it is being referenced. To identify when a value is assigned to it, I opened up the x-refs and jumped to the one item where it is written to.</p>
+    <p>The variable is not initialised at compile time, however it appears that the variable contains a pointer to a structure containing the C2 data, based on how it is being referenced. To identify when a value is assigned to it, I opened up the x-refs and jumped to the one item where it is being written to.</p>
 
     <img src="screenshots/xref.png" style="width: 50%;" />
 
@@ -419,12 +417,12 @@ main()
 
 
     <p>
-    So we can see a heap pointer is initialised and written to our global variable. Then a subsequent function can be seen accessing the global, and writing the output of a sprintf call to the pointer's destination.
+    A heap pointer is initialised and written to our global variable. Then a subsequent function can be seen accessing the global, and writing the output of a sprintf call to the pointer's destination.
     </p>
 
     <img src="screenshots/init_form.png" style="width: 70%;" />
 
-    <p>Taking a look at the function that provides the format string, it appears to initialise a stack string for a decryption function <b>decrypt_stuff</b> that was called 32 times, so I decided to locate all calls to this function and emulate them.</p>
+    <p>Taking a look at the function that provides the format string, it appears to initialise a stack string for a decryption function <b>decrypt_stuff</b>. The decryption function was called 32 times, so I decided to locate all calls to this function and emulate them.</p>
 
     <img src="screenshots/format_str.png" style="width: 40%;" />
     <img src="screenshots/decrypt_stuff.png" style="width: 70%;" />
@@ -519,7 +517,7 @@ main()
         KeyDataBlob
     </pre>
 
-    <p>The string that was returned for the format string was <b>"%u.%u.%u.%u"</b>. This is almost certainly a format string for an IP address, which confirms my belief that this struct used for C2 comms gets initialised here. As such, emulating this function should retrieve all the IPs. The script just needs to read the destination buffer pointer when it is passed in as an argument, then read from it after the call to sprintf is complete.</p>
+    <p>The string that was returned for the format string was <b>"%u.%u.%u.%u"</b>. This is almost certainly a format string for an IP address, which confirms my belief that this struct used for C2 communication gets initialised here. As such, emulating this function should retrieve all the IPs. The script just needs to read the destination buffer pointer when it is passed in as an argument, then read from it after the call to sprintf is complete.</p>
 
     <p>Again, I use Dumpulator and hook the underlying Unicorn instance to do this:</p>
 
@@ -564,7 +562,7 @@ print(found_ips)
 ['63[.]142[.]250[.]212', '150[.]95[.]66[.]124', '91[.]207[.]28[.]33', '172[.]104[.]251[.]154', '107[.]182[.]225[.]142', '185[.]157[.]82[.]211', '149[.]56[.]131[.]28', '196[.]218[.]30[.]83', '158[.]69[.]222[.]101', '45[.]176[.]232[.]124', '58[.]227[.]42[.]236', '212[.]24[.]98[.]99', '159[.]65[.]88[.]10', '189[.]126[.]111[.]200', '94[.]23[.]45[.]86', '51[.]254[.]140[.]238', '1[.]234[.]2[.]232', '1[.]234[.]21[.]73', '206[.]189[.]28[.]199', '164[.]68[.]99[.]3', '153[.]126[.]146[.]25', '46[.]55[.]222[.]11', '167[.]99[.]115[.]35', '134[.]122[.]66[.]193', '203[.]114[.]109[.]124', '51[.]91[.]76[.]89', '185[.]4[.]135[.]165', '79[.]137[.]35[.]198', '185[.]8[.]212[.]130', '213[.]241[.]20[.]155', '82[.]165[.]152[.]127', '119[.]193[.]124[.]41', '103[.]75[.]201[.]2', '201[.]94[.]166[.]162', '212[.]237[.]17[.]99', '103[.]70[.]28[.]102', '131[.]100[.]24[.]231', '209[.]250[.]246[.]206', '102[.]222[.]215[.]74', '5[.]9[.]116[.]246', '129[.]232[.]188[.]93', '216[.]158[.]226[.]206', '173[.]212[.]193[.]249', '101[.]50[.]0[.]91', '197[.]242[.]150[.]244', '27[.]54[.]89[.]58', '163[.]44[.]196[.]120', '45[.]118[.]115[.]99', '51[.]91[.]7[.]5', '110[.]232[.]117[.]186', '103[.]43[.]46[.]182', '146[.]59[.]226[.]45', '72[.]15[.]201[.]15', '167[.]172[.]253[.]162', '209[.]126[.]98[.]206', '151[.]106[.]112[.]196', '183[.]111[.]227[.]137', '160[.]16[.]142[.]56', '209[.]97[.]163[.]214', '45[.]235[.]8[.]30', '188[.]44[.]20[.]25', '77[.]81[.]247[.]144', '103[.]132[.]242[.]26']
     </pre>
 
-    <p>Although utilising the above code for an automated configuration extractor might prove difficult, I decided to poke around a bit more in this function and see if there was an easy opportunity to develop automation. I found that the IP data was initialised through these functions <i>(initially the function pointers were placed in an array and called in a later function - these functions generated the data from literal/immediate values, rather than storing them as data.)</i></p>
+    <p>Although utilising the above code for an automated configuration extractor might prove difficult, so I decided to poke around a bit more in this function and see if there was an easy opportunity to develop automation. I found that the IP data was initialised through these functions <i>(initially the function pointers were placed in an array and called in a later function - these functions generated the data from literal/immediate values, rather than storing them as data.)</i></p>
 
     <img src="screenshots/automation.png" style="width: 70%;" />
 
