@@ -118,8 +118,8 @@ import idautils
 def get_paramter(all_dll_api_pairs):
     for xref in idautils.XrefsTo(0x00007FF9B6F73D70): # api_resolve_wrapper_func
         xref = xref.frm
-        dict_key = str(hex(xref))
-        dll_api_pair_dict = {'address' : dict_key}
+        addr = str(hex(xref))
+        dll_api_pair_dict = {'address' : addr}
         counter = 25
         prev_instruct = idaapi.prev_head(xref, 25)
         while counter >= 0: # the instruction moving the hash value into the register, is not a consistent offset from the call the api hash wrapper, so have to loop back for a while
