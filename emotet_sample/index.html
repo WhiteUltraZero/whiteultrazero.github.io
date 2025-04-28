@@ -105,7 +105,7 @@ find_gs()
     <img src="screenshots/dll_hashing.png" style="width: 70%;" />
   
     <p>
-        The hashing function for resolving the Win API function names is a separate custom hashing function (to the one used for the DLL names).
+        The hashing function for hashing the API names is a separate custom hashing function (to the one used for the DLL names).
     </p>
     <img src="screenshots/api_hashing.png" style="width: 70%;" />
 
@@ -165,7 +165,7 @@ print(all_dll_api_pairs)
     </p>
 
     <p>
-        But I wanted to try something different - I wanted to emulate the entire wrapper function (including the DLL table walking etc, and extract the DLL names and API names), through Dumpulator.
+        But I wanted to try something different - I wanted to emulate the entire wrapper function (including the export table walking etc, and extract the DLL names and API names), through Dumpulator.
     </p>
 
     <p>
