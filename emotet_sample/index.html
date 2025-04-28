@@ -348,7 +348,7 @@ print(resolved_apis)
 
     
     <p>
-        After resolving the Win APIs, I investigated what was actually done with the retrieved function pointer. It appears that the retrieved API pointers get written to a global variable (.data section), however this appears to be just be storing the pointer in a cache as there is no other xrefs to these addresses <i>(although it is possible they indexed into from a base address, in which they wouldn't show up as cross references)</i>.
+        After resolving the Win APIs, I investigated what was actually done with the retrieved function pointer. It appears that the retrieved API pointers get written to a global variable (.data section), however this appears to just be storing the pointer in a cache as there is no other xrefs to these addresses <i>(although it is possible they indexed into from a base address, in which they wouldn't show up as cross references)</i>.
     </p>
 
     <p>
