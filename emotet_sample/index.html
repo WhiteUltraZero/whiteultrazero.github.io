@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Extracing Emotets C2 Configuration</title>
+  <title>Extracting Emotet's C2 Configuration</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
   <script>hljs.highlightAll();</script>
@@ -19,7 +19,7 @@
 
     <h1>Overview</h1>
     <p>
-        I was doing a challenge exercise from Oalabs to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice utilising emulation. I decided to a write up on my process of doing this, as such this is not a full analysis/ report of the sample.
+        I was doing a challenge exercise from Oalabs to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice utilising emulation. I decided to write up my process of doing this, as such this is not a full analysis/ report of the sample.
     </p>
     <p>
         I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.
@@ -51,7 +51,7 @@
         (For those unfamiliar, a module loaded into a processes memory space will expose the functions it exports through an export table. Although this is typically intended to be used by the Windows loader or APIs such as GetProcAddress, it can be manually parsed, as a stealthy technique to resolve imports)
     </i>
     <p>
-        So to find the API hashing function I decided to hunt for references to TEB , as this is required to access the PEB, which is often used to find the base address of modules that have been loaded in processes memory space. As such I used the script below to scan all the assembly instructions to see if it contained 'gs' (If this was a 32 bit sample I would use 'fs').
+        So to find the API hashing function I decided to hunt for references to the TEB, as this is required to access the PEB, which is often used to find the base address of modules that have been loaded in processes memory space. As such I used the script below to scan all the assembly instructions to see if it contained 'gs' (If this was a 32 bit sample I would use 'fs').
     </p>
     <i>
         (The gs/fs segment register of all threads will contain a pointer to the TEB)
@@ -169,7 +169,7 @@ print(all_dll_api_pairs)
     </p>
 
     <p>
-        This would mean I would not need to get a wordlist to perform a brute force, I could just plug in the hashes I acquired and that should be enough, however spoilers - It only sort of worked.
+        This would mean I would not need to get a wordlist to perform a brute force, I could just plug in the hashes I acquired and that should be enough, however, spoilers—it only sort of worked.
     </p>
 
     <p>
@@ -416,7 +416,7 @@ main()
 
 
     <p>
-    A heap pointer is initialised and written to our global variable. Then a subsequent function can be seen accessing the global, and writing the output of a sprintf call to the pointer's destination.
+    A heap pointer is initialised and written to our global variable. Then, a subsequent function can be seen accessing the global, and writing the output of a sprintf call to the pointer's destination.
     </p>
 
     <img src="screenshots/init_form.png" style="width: 70%;" />
