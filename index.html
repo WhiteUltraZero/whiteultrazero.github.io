@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -11,10 +12,44 @@
       color: #ccc;
       font-family: sans-serif;
       padding: 2em;
+      position: relative;
+    }
+
+    a {
+      color: #6ab0f3;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    h1 {
+      color: #fff;
+    }
+
+    .content {
+      margin-bottom: 2em;
+    }
+
+    .top-right-link {
+      position: absolute;
+      top: 1em;
+      right: 1em;
+      font-size: 0.9em;
     }
   </style>
 </head>
 <body>
-    <a href="https://whiteultrazero.github.io/emotet-config-extraction/">Extracting Emotet's Config</a>
+  <div class="top-right-link">
+    <a href="https://linkedin.com/in/kevin-johnson-28292125a" target="_blank">Connect with me on LinkedIn</a>
+  </div>
+
+  <h1>Kevin Johnson's Security Blog</h1>
+  <div class="content">
+    <p>Welcome to my blog, where I will post things I am doing related to reverse engineering and malware analysis.</p>
+  </div>
+
+  <a href="https://whiteultrazero.github.io/emotet-config-extraction/">Extracting Emotet's Config</a>
 </body>
 </html>
