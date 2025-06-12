@@ -217,7 +217,7 @@ import base64
 from Crypto.Cipher import ARC4
 
 def retrive_rdata(fpath):
-    oski = pefile.PE(fath)
+    oski = pefile.PE(fpath)
     for section in oski.sections:
         if b'.rdata' in section.Name:
             oski_rdata = section.get_data()
