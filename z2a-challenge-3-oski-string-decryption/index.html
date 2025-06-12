@@ -92,9 +92,6 @@ This showed it loading another assembly and calling the method <b>fQRwCeWyVS()</
 
 <p>To make dynamic analysis easier, I ran the sample again and overwrote the variable passed to LoadAssembly with the cleaned de4dot sample. I did this by opening the cleaned sample in CyberChef and running the recipe '<i>to hex</i>'. Then in the debugging context I opened the <i>array</i> variable in the memory view and pasted over it.</p>
 
-<p>This now showed the call to Invoke is targeting the method <b>smethod_10()</b></p>
-
-<img src="screenshots/method_smethod10.png" style="width: 70%;" />
 
 <p>This made the decompilation a lot cleaner:</p>
 
@@ -107,6 +104,10 @@ This showed it loading another assembly and calling the method <b>fQRwCeWyVS()</
 <p></i>Original</i></p>
 
 <img src="screenshots/original.png" style="width: 70%;" />
+
+<p>This now showed the call to Invoke is targeting the method <b>smethod_10()</b></p>
+
+<img src="screenshots/method_smethod10.png" style="width: 70%;" />
 
 
 <p>I did some basic markup and which showed this sample had variety of functionalities, however it would use hardcoded flags to determine which components to actually execute.</p>
