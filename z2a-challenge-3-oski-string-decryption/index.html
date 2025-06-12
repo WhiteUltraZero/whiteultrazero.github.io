@@ -44,7 +44,7 @@ First Stage SHA256: 707adf85c61f5029e14aa27791010f2959e70c0fee182fe968d2eb7f2991
 
 <img src="screenshots/assembly_cross_references.png" style="width: 70%;" />
 
-<p>Looking at references to Assembly, there are four calls to methods from the class from non-library/runtime code.</p>
+<p>Looking at references to assembly, there are four calls to methods from the class from non-library/runtime code.</p>
 
 <p>The most interesting one is a method I’ve named <b>Load_byte_array()</b>, which is just a wrapper around AppDomain.CurrentDomain.Load().</p>
 
@@ -72,7 +72,7 @@ First Stage SHA256: 707adf85c61f5029e14aa27791010f2959e70c0fee182fe968d2eb7f2991
 
 <img src="screenshots/func_attribute_method.png" style="width: 70%;" />
 
-<p>This Assembly looked decently obfuscated as well, so I tried running it through de4dot. It was not recognised as a known obfuscator so I skipped cleaning and just analysed it as-is.</p>
+<p>This assembly looked decently obfuscated as well, so I tried running it through de4dot. It was not recognised as a known obfuscator so I skipped cleaning and just analysed it as-is.</p>
 
 <img src="screenshots/de4dot_unregonised.png" style="width: 50%;" />
 
