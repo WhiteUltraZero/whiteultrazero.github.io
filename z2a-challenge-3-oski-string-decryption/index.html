@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Z2A Challenge #3 – Oski Stealer String Decryption</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+  <style>
+    body {
+      background-color: #1e1e1e;
+      color: #ccc;
+      font-family: sans-serif;
+      padding: 2em;
+    }
+    .top-right-link {
+      position: absolute;
+      top: 1em;
+      right: 1em;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-right-link">
+    <a href="https://linkedin.com/in/kevin-johnson-28292125a" target="_blank">Connect with me on LinkedIn</a>
+  </div>
+
+
+<h1>Z2A Challenge #3 – Oski Stealer String Decryption</h1>
+
+<p>This is my belated write-up for Zero 2 Automated's Challenge #3 – Oski Stealer String Decryption.</p>
+
+<p>The goal was to develop an automated string decryptor for the final payload. The sample is initially packed with a .NET packer which is why I was interested in this challenge as I wanted to get more reps with .NET samples.</p>
+
+First Stage SHA256: 707adf85c61f5029e14aa27791010f2959e70c0fee182fe968d2eb7f2991797b
+
+<h2>Unpacking the .NET Sample</h2>
+
+<img src="screenshots/die_initial_sample.png" style="width: 70%;" />
+
+<p>Initial triage showed it uses a known obfuscator, so I started by trying to run it through de4dot, which successfully produced a cleaned version.</p>
+
+<p>With .NET samples, I usually start by looking at cross-references to the <b>Assembly</b> class, since many samples use this to load additional payloads. Given that this sample is packed, it's definitely worth checking out.</p>
+
+<img src="screenshots/assembly_cross_references.png" style="width: 70%;" />
+
+<p>Looking at references to Assembly, there are four calls to methods from the class from non-library/runtime code.</p>
+
+<p>The most interesting one is a method I’ve named <b>Load_byte_array()</b>, which is just a wrapper around AppDomain.CurrentDomain.Load().</p>
+
+<img src="screenshots/load_byte_array.png" style="width: 50%;" />
+
+<p>Looking at the references to <b>Load_byte_array()</b> shows a method I named <b>retrieve_and_dec_rsrc()</b> as it can clearly be seen getting the resource <b>BayesMe</b>, then calling a decryption function on the resource.</p>
+
+<img src="screenshots/retrieve_and_dec_rsrc.png" style="width: 70%;" />
+
+<p>This seemed like a good chance to dynamically retrieve the decrypted resource, so I set a breakpoint after the call to the decryption function, then dumped the local variable <i>array</i> that held the result.</p>
+
+<img src="screenshots/mz_magic.png" style="width: 50%;" />
+
+<p>This appeared to be a valid executable file as the MZ magic was seen.</p>
+
+<p>Stepping out of the method showed immediate call to <b>Invoke()</b> and <b>Run()</b>, verifying it is not a dummy file and is actually invoked.</p>
+
+<img src="screenshots/invoke_and_run.png" style="width: 70%;" />
+
+<p>The local variables debugging Window showed that the <i>methodInfo</i> variable is a reference to the method <b>EhgUZIvRw()</b>.</p>
+
+<img src="screenshots/method_info_debug.png" style="width: 60%;" />
+
+<p>Searching for this method showed it belongs to the loaded assembly <b>FuncAttribute.dll</b></p>
+
+<img src="screenshots/func_attribute_method.png" style="width: 70%;" />
+
+<p>This Assembly looked decently obfuscated as well, so I tried running it through de4dot. It was not recognised as a known obfuscator so I skipped cleaning and just analysed it as-is.</p>
+
+<img src="screenshots/de4dot_unregonised.png" style="width: 50%;" />
+
+<p>A quick look inside the methods it calls show that this method appears to load another assembly and invoke a method from it.</p>
+
+<img src="screenshots/loading_additional_stage.png" style="width: 70%;" />
+
+<p>I set breakpoints on the Invoke and AssemblyLoad methods and ran the sample. 
+This showed it loading another assembly and calling the method <b>fQRwCeWyVS()</b> from it.</p>
+
+<img src="screenshots/method_fQRwCeWyVS.png" style="width: 50%;" />
+
+
+<p>I dumped the binary and ran it through de4dot — which detected it as a <b>Reactor</b> protected sample, which it managed to successfully clean.</p>
+
+<img src="screenshots/reactor_cleaned.png" style="width: 50%;" />
+
+<p>To make dynamic analysis easier, I ran the sample again and overwrote the variable passed to LoadAssembly with the cleaned de4dot sample. I did this by opening the cleaned sample in CyberChef and running the recipe '<i>to hex</i>'. Then in the debugging context I opened the <i>array</i> variable in the memory view and pasted over it.</p>
+
+<p>This now showed the call to Invoke is targeting the method <b>smethod_10()</b></p>
+
+<img src="screenshots/method_smethod10.png" style="width: 70%;" />
+
+<p>This made the decompilation a lot cleaner:</p>
+
+<p><i>Cleaned</i></p>
+
+<img src="screenshots/original.png" style="width: 70%;" />
+
+<p>vs</p>
+
+<p></i>Original</i></p>
+
+
+<p>I did some basic markup and which showed this sample had variety of functionalities, however it would use hardcoded flags to determine which components to actually execute.</p>
+
+<img src="screenshots/functionality_overview.png" style="width: 70%;" />
+
+<p>These flags are set by the Class constructor /cctor.</p>
+
+<img src="screenshots/cctor.png" style="width: 70%;" />
+
+
+<p>Stepping through the program shows that this specific sample calls <b>find_and_inject_process()</b>.</p>
+
+<p>This method uses unmanaged code to retrieve Win APIs to make the injection possible.</p>
+
+<img src="screenshots/retrieving_unmanaged_code.png" style="width: 70%;" />
+
+<p>Of most interest within this method is the call to WriteProcessMemory, as the variable <i>byte_1</i> will contain a buffer that is injected into the victim process.  
+By setting a breakpoint on WriteProcessMemory, I saw that the buffer being injected is a C++ compiled executable, which is presumably the final payload.</p>
+
+<img src="screenshots/write_process_mem.png" style="width: 60%;" />
+
+<h2>Final Payload and String Extraction</h2>
+
+<h3>Finding the Decryption Function</h3>
+
+<p>I began analysis by taking a quick look in PeStudio. This showed what appeared to be a large amount of encrypted strings in the <i>.rdata</i> section.</p>
+
+<img src="screenshots/pestudio_rdata.png" style="width: 60%;" />
+
+<p>Since the goal is to decrypt the strings, I started by going to the <i>.rdata</i> section in IDA and finding cross references to the strings.</p>
+
+<p>The encrypted strings can easily be identified in IDA.</p>
+
+<img src="screenshots/ida_rdata.png" style="width: 60%;" />
+
+<p>It looks like they are all passed to a central decryption function <b>decrypt_strings()</b>.</p>
+
+<img src="screenshots/decrypt_strings_xrefs.png" style="width: 60%;" />
+
+<p>Although not the point of the challenge I did develop an IDA debugging script to immediately resolve all the strings, with no real reverse engineering required.</p>
+
+<img src="screenshots/resolved_debugging.png" style="width: 70%;" />
+
+<h3>Analyzing the Decryption Function</h3>
+
+<p>Back to the actual challenge.</p>
+
+<p>The encrypted strings look to be base64 encoded, however inputting them into a base64 decoder did not return anything legible.  
+My initial hunch was that this could be a custom base64 encoding so I took a quick look around to try and find a modified base64 index string.</p>
+
+<img src="screenshots/base64_index_string.png" style="width: 50%;" />
+
+<p>It does appear the sample uses a standard base64 index string, so this isn’t a custom variant. (The string above is referenced as a global within the decryption function).</p>
+
+<p>Looking deeper into the decryption function, showed lots of functions relating to C++ std::string handling such as small string optimization operations.</p>
+
+<p>As such I create a C++ std::string struct in IDA to help analyze this.</p>
+
+<img src="screenshots/ida_struct_std_string.png" style="width: 50%;" />
+
+<p>This made the analysis of this function much easier, and the decryption flow became much clearer. The function base64-decodes the string, then passes it to another function that I initially labelled <b>looks_like_decryption()</b>.</p>
+
+<img src="screenshots/decryption_function_annotated.png" style="width: 70%;" />
+
+<p>After taking a closer look at <b>looks_like_decryption()</b>, it was unmistakable as RC4. I should have looked closer earlier, as that would have saved me from reversing all the std::string handling.</p>
+
+<img src="screenshots/rc4.png" style="width: 70%;" />
+
+
+<p>I verified my analysis with Cyberchef.</p>
+
+<img src="screenshots/cyberchef_verification_1.png" style="width: 60%;" />
+
+<img src="screenshots/cyberchef_verification_2.png" style="width: 60%;" />
+
+<h2>Automating String Extraction</h2>
+
+<p>I moved on to writing a script that would extract and decrypt the strings automatically.  
+From my analysis:</p>
+
+<ul>
+    <li>The RC4 key is an 18-byte ASCII string containing only digits.</li>
+    <li>The decryption function is the most-called function in the binary.</li>
+</ul>
+
+<p>With this it might be possible to develop regex to extract the RC4 key, and extract the encrypted strings by retrieving all the arguments to the most called function in the binary. This should be able to run headlessly with IDA, however I could not try it as I only have IDA home.</p>
+
+<p>With some proof of concept code I can successfully extract the RC4 key from this sample with regex.</p>
+
+<img src="screenshots/poc_regex.png" style="width: 70%;" />
+
+<p>I can also identify the decryption function by using IDA retrieve the function with the highest cross reference count.</p>
+
+<img src="screenshots/poc_func_extract.png" style="width: 70%;" />
+
+<p>The final developed script can be seen working below, and should be able to be integrated into a fully automated workflow.</p>
+
+<img src="screenshots/final_script.png" style="width: 90%;" />
+
+<p>The actual code is shown below:</p>
+
+<pre><code>import pefile
+from binascii import *
+import re
+import base64
+from Crypto.Cipher import ARC4
+
+def retrive_rdata(fpath):
+    oski = pefile.PE(fath)
+    for section in oski.sections:
+        if b'.rdata' in section.Name:
+            oski_rdata = section.get_data()
+            break
+            
+    return oski_rdata
+def extract_rc4_key(rdata):
+    matches = re.findall(rb'[0-9]{12,32}\x00', rdata)
+    
+    if len(matches) != 1:
+        print('Unsuccessful extracting key')
+        return None
+        
+    for m in matches:
+        return (m[:-1].decode())
+
+def get_most_called_func():
+    functionCount = []
+    for func in Functions():
+        xref_count = 0
+        for xref in XrefsTo(func):
+            xref_count += 1
+        functionCount.append((func, xref_count))
+        
+    funcs_sorted = (sorted(functionCount, key=lambda item: item[1]))
+    most_called = funcs_sorted[-1:]
+    return most_called[0][0]
+
+def b64_decode_rc4_decrypt(key, enc_string):
+    key_bytes = key.encode('utf-8')
+    encrypted_bytes = base64.b64decode(enc_string)
+    cipher = ARC4.new(key_bytes)
+    decrypted_bytes = cipher.decrypt(encrypted_bytes)
+    return decrypted_bytes.decode('utf-8', errors='replace')
+
+def main():
+    fpath = r"C:\Users\Kevin\Desktop\Samples\z2a challenge oski final payload\oski_final_payload.bin"
+    
+    rdata = retrive_rdata(fpath)
+    
+    rc4_key = extract_rc4_key(rdata)
+    
+    decrypt_strings_func_ea = get_most_called_func()
+    
+    enc_strings = []
+    for xref in CodeRefsTo(decrypt_strings_func_ea, 0):
+        arg_insn = idc.prev_head(xref)
+        enc_str_ea = get_operand_value(arg_insn, 0)
+        enc_str = ida_bytes.get_strlit_contents(enc_str_ea, -1, ida_nalt.STRTYPE_C, 0).decode('utf-8')
+        print(b64_decode_rc4_decrypt(rc4_key, enc_str))
+        
+main()
+</code></pre>
+
+</body>
+</html>
