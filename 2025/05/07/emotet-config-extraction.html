@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Emotet Configuration Extraction | Kevin Johnson’s Security Blog</title>
+<meta name="generator" content="Jekyll v4.4.1" />
+<meta property="og:title" content="Emotet Configuration Extraction" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Overview This post is a write-up of an OALabs exercise in which the goal was to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice using emulation. I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results." />
+<meta property="og:description" content="Overview This post is a write-up of an OALabs exercise in which the goal was to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice using emulation. I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results." />
+<link rel="canonical" href="https://whiteultrazero.github.io/2025/05/07/emotet-config-extraction.html" />
+<meta property="og:url" content="https://whiteultrazero.github.io/2025/05/07/emotet-config-extraction.html" />
+<meta property="og:site_name" content="Kevin Johnson’s Security Blog" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-05-07T00:00:00+10:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Emotet Configuration Extraction" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-05-07T00:00:00+10:00","datePublished":"2025-05-07T00:00:00+10:00","description":"Overview This post is a write-up of an OALabs exercise in which the goal was to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice using emulation. I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.","headline":"Emotet Configuration Extraction","mainEntityOfPage":{"@type":"WebPage","@id":"https://whiteultrazero.github.io/2025/05/07/emotet-config-extraction.html"},"url":"https://whiteultrazero.github.io/2025/05/07/emotet-config-extraction.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="https://whiteultrazero.github.io/feed.xml" title="Kevin Johnson&apos;s Security Blog" /></head>
+<body><header class="site-header" role="banner">
+  <div class="wrapper">
+
+    <!-- Site title linking to home -->
+    <h1 class="site-title">
+      <a href="/">Kevin Johnson's Security Blog</a>
+    </h1>
+
+    <!-- Navigation -->
+    <nav class="site-nav" role="navigation" aria-label="Main navigation">
+      <ul class="nav-list" style="list-style:none; padding:0; margin:0; display:flex; align-items:center; gap:1rem;">
+        <li><a href="/">Home</a></li>
+
+        <!-- LinkedIn Icon Link -->
+        <li>
+          <a href="https://www.linkedin.com/in/kevin-johnson-28292125a" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" style="color:#0A66C2;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4.98 3.5C4.98 4.88 3.87 6 2.5 6S0 4.88 0 3.5 1.11 1 2.5 1 4.98 2.12 4.98 3.5zM.5 8H4.5V24H.5V8zM8.5 8H12.2V10.4H12.3C12.9 9.1 14.5 7.8 17 7.8C21 7.8 22 10.7 22 14.7V24H17V16.6C17 14.9 17 12.9 14.7 12.9C12.3 12.9 12 14.7 12 16.4V24H8V8H8.5Z"/>
+            </svg>
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+  </div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Emotet Configuration Extraction</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2025-05-07T00:00:00+10:00" itemprop="datePublished">May 7, 2025
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <h1>Overview</h1>
+<p>
+This post is a write-up of an OALabs exercise in which the goal was to retrieve the C2 configuration from an unpacked Emotet sample, as a way to practice using emulation.
+</p>
+<p>
+I am pretty sure the idea was to emulate the configuration de-obfuscation routine, but I also tried to utilise emulation to resolve the API hashing in the sample and had some interesting results.
+</p>
+
+<h2>Sample</h2>
+<p>
+<b>SHA256</b>: C688E079A16B3345C83A285AC2AE8DD48680298085421C225680F26CEAE73EB7
+</p>
+<p>
+<b>First Seen On VirusTotal</b>: 2022-05-13
+</p>
+<p>
+<b>Family</b>: Emotet
+</p>
+
+<h2>Identifying Win APIs</h2>
+<p>
+Since the goal was to extract the C2 configuration, this implies the sample must include some kind of networking functionality.
+</p>
+<p>
+My approach to find the config data was to look at all the code surrounding network API calls, then I could trace the arguments provided to these and hopefully find the configuration info.
+</p>
+<p>
+Looking at the imports for this sample, it did not contain a single import. This is a clear sign that this sample utilises API hashing, or at the very least walks the Export table of each module it is retrieving functions from.
+</p>
+<p><i>
+(For those unfamiliar, a module loaded into a processes memory space will expose the functions it exports through an export table. Although this is typically intended to be used by the Windows loader or APIs such as GetProcAddress, it can be manually parsed, as a stealthy technique to resolve imports)
+</i></p>
+<p>
+So to find the API hashing function I decided to hunt for references to the TEB, as this is required to access the PEB, which is often used to find the base address of modules that have been loaded in processes memory space. As such I used the script below to scan all the assembly instructions to see if it contained 'gs' (If this was a 32 bit sample I would use 'fs').
+</p>
+<p><i>
+(The gs/fs segment register of all threads will contain a pointer to the TEB)
+</i></p>
+<p>
+Another option would be to do this dynamically (which would likely be quicker as well), by setting breakpoints on a variety of networking APIs and running the sample, but I wanted to try statically reversing the API resolution function.
+
+</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="n">idautils</span>
+
+<span class="k">def</span> <span class="nf">operand_is_gs</span><span class="p">(</span><span class="n">op1</span><span class="p">,</span> <span class="n">op2</span><span class="p">):</span>
+    <span class="nf">if </span><span class="p">(</span><span class="sh">"</span><span class="s">gs</span><span class="sh">"</span> <span class="ow">in</span> <span class="n">op1</span> <span class="ow">or</span> <span class="sh">"</span><span class="s">GS</span><span class="sh">"</span> <span class="ow">in</span> <span class="n">op1</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="sh">"</span><span class="s">gs</span><span class="sh">"</span> <span class="ow">in</span> <span class="n">op2</span> <span class="ow">or</span> <span class="sh">"</span><span class="s">GS</span><span class="sh">"</span> <span class="ow">in</span> <span class="n">op2</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+    <span class="k">return</span> <span class="bp">False</span>
+
+<span class="k">def</span> <span class="nf">find_gs</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">func_ea</span> <span class="ow">in</span> <span class="n">idautils</span><span class="p">.</span><span class="nc">Functions</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">head</span> <span class="ow">in</span> <span class="n">idautils</span><span class="p">.</span><span class="nc">Heads</span><span class="p">(</span><span class="n">func_ea</span><span class="p">,</span> <span class="n">idc</span><span class="p">.</span><span class="nf">get_func_attr</span><span class="p">(</span><span class="n">func_ea</span><span class="p">,</span> <span class="n">idc</span><span class="p">.</span><span class="n">FUNCATTR_END</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">idc</span><span class="p">.</span><span class="nf">is_code</span><span class="p">(</span><span class="n">idc</span><span class="p">.</span><span class="nf">get_full_flags</span><span class="p">(</span><span class="n">head</span><span class="p">)):</span>
+                <span class="k">continue</span>
+            <span class="n">first_op</span> <span class="o">=</span> <span class="nf">print_operand</span><span class="p">(</span><span class="n">head</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">second_op</span> <span class="o">=</span> <span class="nf">print_operand</span><span class="p">(</span><span class="n">head</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">first_op</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="nf">operand_is_gs</span><span class="p">(</span><span class="n">first_op</span><span class="p">,</span> <span class="n">second_op</span><span class="p">)</span> <span class="o">==</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="nf">print</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="nf">hex</span><span class="p">(</span><span class="n">head</span><span class="p">)</span><span class="si">}</span><span class="s">: </span><span class="si">{</span><span class="nc">GetDisasm</span><span class="p">(</span><span class="n">head</span><span class="p">)</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+<span class="nf">find_gs</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p>
+    Which showed one reference:
+</p>
+<p><img src="/assets/emotet-config-extraction/peb.png" style="width: 90%;" /></p>
+
+<p>
+    Back tracing this function, I got to this function - Looking at the cross references to it, it is called 108 times, with a variety of arguments that looked like hash values.
+</p>
+<p><img src="/assets/emotet-config-extraction/api_resolve_wrapper.png" style="width: 90%;" />
+<img src="/assets/emotet-config-extraction/dll_resolution.png" style="width: 90%;" />
+<img src="/assets/emotet-config-extraction/api_hash_xref.png" style="width: 90%;" /></p>
+<p>
+    Looking into the hashing algorithm used for the DLL names, it did not look too complex, and as such almost certainly a custom algorithm. 
+    <i>
+    (A standard hashing algorithm will typically look much more complex, such that it can be properly cryptographically secure).
+    </i>
+</p>
+
+<p><img src="/assets/emotet-config-extraction/dll_hashing.png" style="width: 90%;" /></p>
+
+<p>
+    The hashing function for hashing the API names is a separate custom hashing function (to the one used for the DLL names).
+</p>
+<p><img src="/assets/emotet-config-extraction/api_hashing.png" style="width: 90%;" /></p>
+
+<p>But first I need to retrieve all hashes provided to the function, which I used the following script to acquire.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="n">idautils</span>
+
+<span class="k">def</span> <span class="nf">get_paramter</span><span class="p">(</span><span class="n">all_dll_api_pairs</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">xref</span> <span class="ow">in</span> <span class="n">idautils</span><span class="p">.</span><span class="nc">XrefsTo</span><span class="p">(</span><span class="mh">0x00007FF9B6F73D70</span><span class="p">):</span> <span class="c1"># api_resolve_wrapper_func
+</span>        <span class="n">xref</span> <span class="o">=</span> <span class="n">xref</span><span class="p">.</span><span class="n">frm</span>
+        <span class="n">addr</span> <span class="o">=</span> <span class="nf">str</span><span class="p">(</span><span class="nf">hex</span><span class="p">(</span><span class="n">xref</span><span class="p">))</span>
+        <span class="n">dll_api_pair_dict</span> <span class="o">=</span> <span class="p">{</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span> <span class="p">:</span> <span class="n">addr</span><span class="p">}</span>
+        <span class="n">counter</span> <span class="o">=</span> <span class="mi">25</span>
+        <span class="n">prev_instruct</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">xref</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">counter</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span> <span class="c1"># the instruction moving the hash value into the register, is not a consistent offset from the call the api hash wrapper, so have to loop back for a while
+</span>            <span class="n">counter</span> <span class="o">-=</span> <span class="mi">1</span>
+            <span class="n">mnemonic</span> <span class="o">=</span> <span class="nf">print_insn_mnem</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">mnemonic</span> <span class="o">!=</span> <span class="sh">'</span><span class="s">mov</span><span class="sh">'</span><span class="p">:</span>
+                <span class="n">prev_instruct</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="n">first_operand</span> <span class="o">=</span> <span class="nf">print_operand</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">first_operand</span> <span class="o">!=</span> <span class="sh">"</span><span class="s">edx</span><span class="sh">"</span> <span class="ow">and</span> <span class="n">first_operand</span> <span class="o">!=</span> <span class="sh">"</span><span class="s">rdx</span><span class="sh">"</span> <span class="ow">and</span> <span class="n">first_operand</span> <span class="o">!=</span> <span class="sh">"</span><span class="s">ecx</span><span class="sh">"</span> <span class="ow">and</span> <span class="n">first_operand</span> <span class="o">!=</span> <span class="sh">"</span><span class="s">rcx</span><span class="sh">"</span><span class="p">:</span>
+                <span class="n">prev_instruct</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">first_operand</span> <span class="o">==</span> <span class="sh">'</span><span class="s">ecx</span><span class="sh">'</span> <span class="ow">or</span> <span class="n">first_operand</span> <span class="o">==</span> <span class="sh">'</span><span class="s">rcx</span><span class="sh">'</span><span class="p">:</span>
+                <span class="n">instruction</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">insn_t</span><span class="p">()</span>
+                <span class="n">idaapi</span><span class="p">.</span><span class="nf">decode_insn</span><span class="p">(</span><span class="n">instruction</span> <span class="p">,</span> <span class="n">prev_instruct</span><span class="p">)</span>
+                <span class="n">dll_name_hash</span> <span class="o">=</span> <span class="n">instruction</span><span class="p">.</span><span class="n">Op2</span><span class="p">.</span><span class="n">value</span>
+                <span class="k">if</span> <span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">dll_api_pair_dict</span><span class="p">:</span>
+                    <span class="n">dll_api_pair_dict</span><span class="p">[</span><span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">dll_name_hash</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="p">)</span>
+                <span class="n">prev_instruct</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">first_operand</span> <span class="o">==</span> <span class="sh">'</span><span class="s">rdx</span><span class="sh">'</span> <span class="ow">or</span> <span class="n">first_operand</span> <span class="o">==</span> <span class="sh">'</span><span class="s">edx</span><span class="sh">'</span><span class="p">:</span>
+                <span class="n">instruction</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">insn_t</span><span class="p">()</span>
+                <span class="n">idaapi</span><span class="p">.</span><span class="nf">decode_insn</span><span class="p">(</span><span class="n">instruction</span> <span class="p">,</span> <span class="n">prev_instruct</span><span class="p">)</span>
+                <span class="n">win_api_hash</span> <span class="o">=</span> <span class="n">instruction</span><span class="p">.</span><span class="n">Op2</span><span class="p">.</span><span class="n">value</span>
+                <span class="k">if</span> <span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">dll_api_pair_dict</span><span class="p">:</span>
+                    <span class="n">dll_api_pair_dict</span><span class="p">[</span><span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">win_api_hash</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="p">)</span>
+                <span class="n">prev_instruct</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">prev_instruct</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nf">len</span><span class="p">(</span><span class="n">dll_api_pair_dict</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="n">all_dll_api_pairs</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">dll_api_pair_dict</span><span class="p">)</span>
+                <span class="k">break</span>
+
+<span class="n">all_dll_api_pairs</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="nf">get_paramter</span><span class="p">(</span><span class="n">all_dll_api_pairs</span><span class="p">)</span>
+<span class="nf">print</span><span class="p">(</span><span class="n">all_dll_api_pairs</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>
+    With this I now have a list of all the hashes, and the location they were called from.
+</p>
+
+<p>
+    The standard approach to resolve these hashes would either be to use HashDB, or re-implement the hashing function and brute force them with them with a API wordlist.
+</p>
+
+<p>
+    But I wanted to try something different - I wanted to emulate the entire wrapper function (including the export table walking etc, and extract the DLL names and API names), through Dumpulator.
+</p>
+
+<p>
+    This would mean I would not need to get a wordlist to perform a brute force, I could just plug in the hashes I acquired and that should be enough, however, spoilers—it only sort of worked.
+</p>
+
+<p>
+    To do this I needed to do some additional reverse engineering, to figure out where I want to hook, and what registers or memory locations I want to read. As such I marked up this function a bit more.
+</p>
+
+<p><img src="/assets/emotet-config-extraction/marked_up.png" style="width: 90%;" /></p>
+
+<p>
+    After marking up the decompiled output, I want to correlate it with the assembly code and see if I can easily retrieve the index into the export name table.
+</p>
+
+<p>
+    The disassembled code shows a loop, in which an export name table entry is passed into the function <b>win_api_hashing_func</b>, and if the calculated hash matches the hash provided by the argument, it will exit the loop.
+</p>
+
+<p>
+    To use emulation to resolve this, I have to extract the export table entry passed into <b>win_api_hashing_func</b> each loop, and hopefully when it exits, the most recent value we have extracted will be the API of interest.
+</p>
+
+<p>
+    The easiest way for this I found was reading the contents of the rcx register at the address <b>0x07FF9B6F791C4</b> in <b>win_api_hashing_func</b> as it is directly reading from the export name table at this address.
+</p>
+
+<p><img src="/assets/emotet-config-extraction/hashing_func.png" style="width: 90%;" /></p>
+
+<p>
+    This can be done by hooking Dumpulator through its Unicorn underpinning, and retrieving a pointer to the string each loop. Once the emulation instance finishes the retrieved value should be the most recent export name table entry, hopefully pointing to the API name string. (Not sure if you are meant to do this as the unicorn instance is labelled as a private attribute, but it worked).
+</p>
+
+<p>
+    To do this all that is needed is a MiniDump of the process, at whatever process execution state we want it to be in. Then the sample should be rebased in IDA such that the Virtual Addresses match up, allowing the use of the Virtual addresses in IDA to help set up the emulation instance. From here the Dumpulator instance can allocate memory, write to memory and set up register values. 
+</p>
+
+<p>
+    For this function the hash arguments are provided through the <b>rcx</b> and <b>rdx</b> registers, so we just have to initalise these registers with the hashes in our dumpulator instance, and then plug in the address of the start of the function.
+</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">dumpulator</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="n">unicorn</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="n">unicorn.x86_const</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="n">struct</span>
+
+
+<span class="n">hashed_api_int</span> <span class="o">=</span> <span class="p">[{</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">:</span> <span class="sh">'</span><span class="s">0x7ff9b6f7118a</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2496187760</span><span class="p">,</span> <span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2657936269</span><span class="p">},</span> <span class="p">{</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">:</span> <span class="sh">'</span><span class="s">0x7ff9b6f713a8</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2657936269</span><span class="p">,</span> <span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">326862382</span><span class="p">}]</span> <span class="c1">#... Cut down for brevity
+</span><span class="n">resolved_win_apis</span> <span class="o">=</span> <span class="p">[]</span>
+
+
+<span class="k">def</span> <span class="nf">hook_code</span><span class="p">(</span><span class="n">uc</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">user_data</span><span class="p">):</span>
+    <span class="n">dp</span> <span class="o">=</span> <span class="n">user_data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    
+    <span class="n">resolved_dict</span> <span class="o">=</span> <span class="n">user_data</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">address</span> <span class="o">==</span> <span class="mh">0x07FF9B6F791C4</span><span class="p">:</span> <span class="c1"># Instruction after rcx gets loaded with pointer from entry in export name table
+</span>        <span class="n">user_data</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rcx</span>
+    
+    <span class="k">if</span> <span class="n">address</span> <span class="o">==</span> <span class="mh">0x07FF9B6F74A66</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="nf">read</span><span class="p">(</span><span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rbx</span> <span class="o">+</span> <span class="mi">48</span> <span class="o">+</span> <span class="mi">24</span> <span class="o">+</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+        <span class="c1"># + 48 = DllBase, + 24 = FullDLLName, + 8 = wchar* (A unicode string struct will have a wide_char* at 8 bytes from its base)
+</span>        <span class="n">out</span> <span class="o">=</span> <span class="n">struct</span><span class="p">.</span><span class="nf">unpack</span><span class="p">(</span><span class="sh">"</span><span class="s">Q</span><span class="sh">"</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">dll_name</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="nf">read_str</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">"</span><span class="s">utf-16</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">resolved_dict</span><span class="p">[</span><span class="sh">'</span><span class="s">dll</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">dll_name</span>
+
+<span class="k">def</span> <span class="nf">extract_name</span><span class="p">(</span><span class="n">dll_hash</span><span class="p">,</span> <span class="n">func_hash</span><span class="p">,</span> <span class="n">xref_address</span><span class="p">):</span>
+    <span class="n">resolved_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">export_name_tab_ptr</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span>
+    <span class="n">dp</span> <span class="o">=</span> <span class="nc">Dumpulator</span><span class="p">(</span><span class="sa">r</span><span class="sh">"</span><span class="s">C:\Users\Kevin\Desktop\Emotet\emotet.dmp</span><span class="sh">"</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">dp</span><span class="p">.</span><span class="n">_uc</span><span class="p">.</span><span class="nf">hook_add</span><span class="p">(</span><span class="n">UC_HOOK_CODE</span><span class="p">,</span> <span class="n">hook_code</span><span class="p">,</span> <span class="n">user_data</span> <span class="o">=</span> <span class="p">[</span><span class="n">dp</span><span class="p">,</span> <span class="n">resolved_dict</span><span class="p">,</span> <span class="n">export_name_tab_ptr</span><span class="p">])</span>
+    <span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rcx</span> <span class="o">=</span> <span class="n">dll_hash</span>
+    <span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rdx</span> <span class="o">=</span> <span class="n">func_hash</span> 
+    <span class="n">start_VA</span> <span class="o">=</span> <span class="mh">0x07FF9B6F73D70</span>
+    <span class="n">end_VA</span> <span class="o">=</span> <span class="mh">0x07FF9B6F8E22B</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">starting</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">dp</span><span class="p">.</span><span class="nf">start</span><span class="p">(</span><span class="n">start_VA</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="n">end_VA</span><span class="p">)</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">finished</span><span class="sh">"</span><span class="p">)</span>
+    <span class="nf">print</span><span class="p">(</span><span class="n">export_name_tab_ptr</span><span class="p">)</span>
+    <span class="n">func_name</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="nf">read_str</span><span class="p">(</span><span class="n">export_name_tab_ptr</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">'</span><span class="s">utf-8</span><span class="sh">'</span><span class="p">)</span>
+    <span class="n">resolved_dict</span><span class="p">[</span><span class="sh">'</span><span class="s">win_api</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">func_name</span>
+    <span class="n">resolved_dict</span><span class="p">[</span><span class="sh">'</span><span class="s">xref_address</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">xref_address</span>
+    <span class="n">resolved_win_apis</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">resolved_dict</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="k">for</span> <span class="nb">dict</span> <span class="ow">in</span> <span class="n">hashed_api_int</span><span class="p">:</span>
+        <span class="n">func_hash</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">]</span>
+        <span class="n">dll_hash</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">]</span>
+        <span class="n">xref_addr</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nf">extract_name</span><span class="p">(</span><span class="n">dll_hash</span><span class="p">,</span> <span class="n">func_hash</span><span class="p">,</span> <span class="n">xref_addr</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span>
+    <span class="nf">print</span><span class="p">(</span><span class="n">resolved_win_apis</span><span class="p">)</span>
+    
+<span class="nf">main</span><span class="p">()</span>
+</code></pre></div></div>
+<p>
+    An issue with this approach is that if the emulation instance can not successfully resolve the hash, then we also cannot retrieve it. This is what occurred here as it only extracted the APIs from kernel32.dll and ntdll.dl, however I counted around 5 unique DLL name hashes provided to the hashing function. 
+</p>
+
+<p><i>
+    (Once I extracted the modules later, I noted that these modules were not loaded in the process in the MiniDump instance - The sample would likely make a call to LoadLibrary to load these modules before attempting to retrieve their functions. - This fact likely makes attempting to resolve API hashing in this manner unreliable. Taking a MiniDump after the calls to LoadLibrary might allow this technique to work for all APIs.)
+</i></p>
+
+<p>
+    results from the emulation routine <i>(I also extracted the dll name, which is technically unnecessary)</i>:
+</p>
+
+<p><img src="/assets/emotet-config-extraction/hashing_results.png" style="width: 80%;" /></p>
+
+<p>
+    So with this I decided to use <b>HashDB</b> to resolve the functions. 
+</p>
+
+<p>
+    In the API resolution function I can see the hashed value of the API will be XOR'ed with <b>0x19A3CCB86</b>, thus using a key to help conceal the hash value. However that is easily thwarted by setting it as the XOR key in the HashDB IDA plugin
+</p>
+
+<p><img src="/assets/emotet-config-extraction/xor_key.png" style="width: 50%;" /></p>
+
+<p>
+    This allows us to do call HashDB's 'Hunt Algorithm' with any of the hashes we acquired earlier. If the hashing algorithm is in HashDB's database as well as the string that the hash resolves to, HashDB Hunt Algorithm will return the hashing algorithm in use.
+</p>
+
+<p>
+    If the hashing algorithm was not in HashDB's database, an option would be to write the algorithm and upload it to them, which would provide access to their large string database.
+    However the algorithm hunt returned an algorithm named 'emotet', so I am now ready to resolve all the APIs.
+</p>
+
+<p>
+    Their API outlines the following format when retrieving strings from an algorithm using an xor key.
+</p>
+
+<p><i>
+    https://hashdb.openanalysis.net/hash/{algorithm}/{hash}/{xor}
+</i></p>
+
+<p>
+    So I used the following script to resolve all the hashes.
+</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="n">requests</span>
+<span class="kn">import</span> <span class="n">time</span>
+
+<span class="n">hashed_api_int</span> <span class="o">=</span> <span class="p">[{</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">:</span> <span class="sh">'</span><span class="s">0x7ff9b6f7118a</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2496187760</span><span class="p">,</span> <span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2657936269</span><span class="p">},</span> <span class="p">{</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">:</span> <span class="sh">'</span><span class="s">0x7ff9b6f713a8</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">dll_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">2657936269</span><span class="p">,</span> <span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">:</span> <span class="mi">326862382</span><span class="p">}]</span> <span class="c1"># ... Cutdown for brevity
+</span>
+<span class="n">resolved_apis</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">unresolved_list</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">unresolved_count</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">hashed_api_int</span><span class="p">:</span>
+    <span class="n">hash_val</span> <span class="o">=</span> <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">win_api_hash</span><span class="sh">'</span><span class="p">]</span>
+    <span class="n">address</span> <span class="o">=</span> <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">address</span><span class="sh">'</span><span class="p">]</span>
+    <span class="n">url_hashdb</span> <span class="o">=</span> <span class="sa">f</span><span class="sh">'</span><span class="s">https://hashdb.openanalysis.net/hash/emotet/</span><span class="si">{</span><span class="n">hash_val</span><span class="si">}</span><span class="s">/430162822</span><span class="sh">'</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="n">url_hashdb</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">response</span><span class="p">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">429</span><span class="p">:</span>
+        <span class="n">time</span><span class="p">.</span><span class="nf">sleep</span><span class="p">(</span><span class="mi">60</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">json</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">api</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="sh">"</span><span class="s">hashes</span><span class="sh">"</span><span class="p">]</span>
+        <span class="n">api</span> <span class="o">=</span> <span class="n">api</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">api</span> <span class="o">=</span> <span class="n">api</span><span class="p">[</span><span class="sh">'</span><span class="s">string</span><span class="sh">'</span><span class="p">]</span>
+        <span class="n">api</span> <span class="o">=</span> <span class="n">api</span><span class="p">[</span><span class="sh">'</span><span class="s">string</span><span class="sh">'</span><span class="p">]</span>
+        <span class="nf">print</span><span class="p">(</span><span class="n">api</span><span class="p">)</span>
+        <span class="n">resolved_apis</span><span class="p">.</span><span class="nf">append</span><span class="p">((</span><span class="n">address</span><span class="p">,</span> <span class="n">api</span><span class="p">))</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sa">f</span><span class="sh">'</span><span class="s">unresolved: </span><span class="si">{</span><span class="n">hash_val</span><span class="si">}</span><span class="sh">'</span><span class="p">)</span>
+        <span class="n">unresolved_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">continue</span>
+        
+<span class="nf">print</span><span class="p">(</span><span class="n">unresolved_count</span><span class="p">)</span>
+<span class="nf">print</span><span class="p">(</span><span class="n">resolved_apis</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>
+    After resolving the Win APIs, I investigated what was actually done with the retrieved function pointer. It appears that the retrieved API pointers get written to a global variable (.data section), however this appears to just be storing the pointer in a cache as there is no other xrefs to these addresses <i>(although it is possible they indexed into from a base address, in which they wouldn't show up as cross references)</i>.
+</p>
+
+<p>
+    For each unique hash set that is passed to <b>win_api_hashing_func</b>, there is a specific wrapper function, which subsequently calls the resolved API. So when marking this up, it is important to actually label the wrapper function rather than the global variable.
+</p>
+
+<p>
+    Thus I used the following script to rename all the functions.
+</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="n">resolved_apis</span> <span class="o">=</span> <span class="p">[(</span><span class="sh">'</span><span class="s">0x7ff9b6f7118a</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">Process32NextW</span><span class="sh">'</span><span class="p">),</span> <span class="p">(</span><span class="sh">'</span><span class="s">0x7ff9b6f713a8</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">GetTempPathW</span><span class="sh">'</span><span class="p">)]</span> <span class="c1"># ... cutdown for brevity
+</span><span class="n">apis_addr_int</span> <span class="o">=</span> <span class="p">[(</span><span class="nf">int</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">16</span><span class="p">),</span> <span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">resolved_apis</span><span class="p">]</span> <span class="c1"># Converting addresses from strings to int values
+</span>
+
+<span class="k">def</span> <span class="nf">rename_funcs</span><span class="p">(</span><span class="n">addr_name</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">]):</span>
+  <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">addr_name</span><span class="p">:</span>
+      <span class="n">address</span><span class="p">,</span> <span class="n">name</span> <span class="o">=</span> <span class="n">pair</span>
+      
+      <span class="n">func</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">get_func</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+      <span class="n">func_start</span> <span class="o">=</span> <span class="n">func</span><span class="p">.</span><span class="n">start_ea</span>
+      <span class="nf">set_name</span><span class="p">(</span><span class="n">func_start</span><span class="p">,</span> <span class="n">name</span> <span class="o">+</span> <span class="sh">"</span><span class="s">_Wrapper</span><span class="sh">"</span><span class="p">)</span>
+      
+      <span class="n">address</span> <span class="o">=</span> <span class="nf">next_head</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+      <span class="n">instruction</span> <span class="o">=</span> <span class="nf">print_insn_mnem</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+      <span class="k">while</span> <span class="n">instruction</span> <span class="o">!=</span> <span class="sh">'</span><span class="s">jmp</span><span class="sh">'</span> <span class="ow">and</span> <span class="n">instruction</span> <span class="o">!=</span> <span class="sh">'</span><span class="s">call</span><span class="sh">'</span><span class="p">:</span> <span class="c1"># it either called or jumped to the API
+</span>          <span class="n">address</span> <span class="o">=</span> <span class="nf">next_head</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+          <span class="n">instruction</span> <span class="o">=</span> <span class="nf">print_insn_mnem</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+      <span class="nf">print</span><span class="p">(</span><span class="nf">hex</span><span class="p">(</span><span class="n">address</span><span class="p">))</span>
+      <span class="nf">set_cmt</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+<span class="nf">rename_funcs</span><span class="p">(</span><span class="n">apis_addr_int</span><span class="p">)</span>
+
+<span class="nf">main</span><span class="p">()</span>
+</code></pre></div></div>
+
+<h2>Finding the config</h2>
+<p>With the APIs resolved, I went back to my original strategy of looking for networking APIs in the hope that they reference the configuration data. I noted that GetProcAddress got resolved, indicating further runtime API resolution may occur, but since some networking functions did get resolved, I did not think it was prudent to investigate.</p>
+
+<p><img src="/assets/emotet-config-extraction/internet_functions.png" style="width: 90%;" /></p>
+
+<p>Of these functions, I think InternetConnectW is a good candidate to investigate as it's MSDN entry outlines it takes an argument <b>'lpszServerName'</b>:<i>
+    "Pointer to a null-terminated string that specifies the host name of an Internet server. Alternately, the string can contain the IP number of the site, in ASCII dotted-decimal format (for example, 11.0.1.45)."
+</i></p>
+
+<p>So going to the wrapper function, I can see it receives an argument that is subsequently passed in as the argument 'lpszServerName' to InternetConnectW.</p>
+
+<p><img src="/assets/emotet-config-extraction/connectW.png" style="width: 90%;" /></p>
+
+<p>I backtracked this argument back a couple of function calls and identified that the original value originated from a global variable.</p>
+
+<p><img src="/assets/emotet-config-extraction/arg_init.png" style="width: 90%;" /></p>
+
+<p>The variable is not initialised at compile time, however it appears that the variable contains a pointer to a structure containing the C2 data, based on how it is being referenced. To identify when a value is assigned to it, I opened up the x-refs and jumped to the one item where it is being written to.</p>
+
+<p><img src="/assets/emotet-config-extraction/xref.png" style="width: 70%;" /></p>
+
+<p>-&gt;</p>
+
+<p><img src="/assets/emotet-config-extraction/init_struct.png" style="width: 90%;" /></p>
+
+<p>
+A heap pointer is initialised and written to our global variable. Then, a subsequent function can be seen accessing the global, and writing the output of a sprintf call to the pointer's destination.
+</p>
+
+<p><img src="/assets/emotet-config-extraction/init_form.png" style="width: 90%;" /></p>
+
+<p>Taking a look at the function that provides the format string, it appears to initialise a stack string for a decryption function <b>decrypt_stuff</b>. The decryption function was called 32 times, so I decided to locate all calls to this function and emulate them.</p>
+
+<p><img src="/assets/emotet-config-extraction/format_str.png" style="width: 60%;" />
+<img src="/assets/emotet-config-extraction/decrypt_stuff.png" style="width: 90%;" /></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="n">idautils</span>
+
+<span class="n">decryptor_callers</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">for</span> <span class="n">xref</span> <span class="ow">in</span> <span class="n">idautils</span><span class="p">.</span><span class="nc">XrefsTo</span><span class="p">(</span><span class="mh">0x07FF9B6F9ADB8</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">calling_address</span> <span class="o">=</span> <span class="n">xref</span><span class="p">.</span><span class="n">frm</span>
+        <span class="nf">print</span><span class="p">(</span><span class="nf">hex</span><span class="p">(</span><span class="n">calling_address</span><span class="p">))</span>
+        <span class="n">func</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">get_func</span><span class="p">(</span><span class="n">calling_address</span><span class="p">)</span>
+        <span class="n">func_start</span> <span class="o">=</span> <span class="n">func</span><span class="p">.</span><span class="n">start_ea</span>
+        <span class="n">decryptor_callers</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">func_start</span><span class="p">)</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="k">pass</span>
+<span class="nf">print</span><span class="p">(</span><span class="n">decryptor_callers</span><span class="p">)</span>
+</code></pre></div></div>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">dumpulator</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="n">callers</span> <span class="o">=</span> <span class="p">[</span><span class="mi">140710493230020</span><span class="p">,</span> <span class="mi">140710493231788</span><span class="p">]</span> <span class="c1"># ... Cutdown for brevity
+</span>
+<span class="n">string_and_caller</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">def</span> <span class="nf">rename_funcs</span><span class="p">(</span><span class="n">addr_name</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">]):</span>
+    <span class="n">name_count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">addr_name</span><span class="p">:</span>
+        <span class="n">address</span><span class="p">,</span> <span class="n">dec_string</span> <span class="o">=</span> <span class="n">pair</span>
+        
+        <span class="n">func</span> <span class="o">=</span> <span class="n">idaapi</span><span class="p">.</span><span class="nf">get_func</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="n">func_start</span> <span class="o">=</span> <span class="n">func</span><span class="p">.</span><span class="n">start_ea</span>
+        <span class="nf">set_name</span><span class="p">(</span><span class="n">func_start</span><span class="p">,</span> <span class="sh">'</span><span class="s">decrypts_string_</span><span class="sh">'</span> <span class="o">+</span> <span class="nf">str</span><span class="p">(</span><span class="n">name_count</span><span class="p">))</span> <span class="c1"># rename the function: decrypts_string_1, decrypts_string_2, etc
+</span>        <span class="n">name_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="nf">set_cmt</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">dec_string</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="c1"># comment the decrypted string at the function
+</span>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">caller</span> <span class="ow">in</span> <span class="n">callers</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">dp</span> <span class="o">=</span> <span class="nc">Dumpulator</span><span class="p">(</span><span class="sa">r</span><span class="sh">"</span><span class="s">C:\Users\Kevin\Desktop\Emotet\emotet.dmp</span><span class="sh">"</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">start_VA</span> <span class="o">=</span> <span class="n">caller</span>
+            <span class="n">end_VA</span> <span class="o">=</span> <span class="mh">0x07FF9B6F9AF3C</span>
+            <span class="n">dp</span><span class="p">.</span><span class="nf">start</span><span class="p">(</span><span class="n">start_VA</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="n">end_VA</span><span class="p">)</span>
+            <span class="n">rax</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rax</span>
+            <span class="n">dec_string</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="nf">read_str</span><span class="p">(</span><span class="n">rax</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">'</span><span class="s">utf-16</span><span class="sh">'</span><span class="p">)</span>
+            <span class="nf">print</span><span class="p">(</span><span class="n">dec_string</span><span class="p">)</span>
+            <span class="n">string_and_caller</span><span class="p">.</span><span class="nf">append</span><span class="p">((</span><span class="n">caller</span><span class="p">,</span> <span class="n">dec_string</span><span class="p">))</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span>
+    <span class="nf">rename_funcs</span><span class="p">(</span><span class="n">string_and_caller</span><span class="p">)</span>
+
+<span class="nf">main</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p>This returned a variety of decrypted strings:</p>
+
+<pre>
+    ObjectLength
+    SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+    %s%s.dll
+    WinSta0\Default
+    RNG
+    AES
+    %s\%s
+    %s\*
+    SHA256
+    %s%s.exe
+    %s\regsvr32.exe "%s\%s" %s
+    HASH
+    Microsoft Primitive Provider
+    bcrypt.dll
+    ECDH_P256
+    Cookie: %s=%s
+    shlwapi.dll
+    shell32.dll
+    ECCPUBLICBLOB
+    Content-Type: multipart/form-data; boundary=%s
+    wininet.dll
+    ECDSA_P256
+    %s\%s%x
+    wtsapi32.dll
+    POST
+    %s\regsvr32.exe "%s" %s
+    %s\regsvr32.exe "%s\%s"
+    userenv.dll
+    %u.%u.%u.%u
+    crypt32.dll
+    KeyDataBlob
+</pre>
+
+<p>The string that was returned for the format string was <b>"%u.%u.%u.%u"</b>. This is almost certainly a format string for an IP address, which confirms my belief that this struct used for C2 communication gets initialised here. As such, emulating this function should retrieve all the IPs. The script just needs to read the destination buffer pointer when it is passed in as an argument, then read from it after the call to sprintf is complete.</p>
+
+<p>Again, I use Dumpulator and hook the underlying Unicorn instance to do this:</p>
+
+<p><img src="/assets/emotet-config-extraction/dump_ip_hook.png" style="width: 90%;" /></p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">dumpulator</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="n">unicorn</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="n">unicorn.x86_const</span> <span class="kn">import</span> <span class="o">*</span>
+
+
+<span class="n">dp</span> <span class="o">=</span> <span class="nc">Dumpulator</span><span class="p">(</span><span class="sa">r</span><span class="sh">"</span><span class="s">C:\Users\Kevin\Desktop\Emotet\emotet.dmp</span><span class="sh">"</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+<span class="n">start_VA</span> <span class="o">=</span> <span class="mh">0x07FF9B6F8B190</span>
+
+<span class="n">end_VA</span> <span class="o">=</span> <span class="mh">0x07FF9B6F73BC8</span>
+
+
+<span class="n">ip_buffer</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">found_ips</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">def</span> <span class="nf">hook_code</span><span class="p">(</span><span class="n">uc</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">user_data</span><span class="p">):</span>
+    <span class="n">dp</span> <span class="o">=</span> <span class="n">user_data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    
+    <span class="k">if</span> <span class="n">address</span> <span class="o">==</span> <span class="mh">0x07FF9B6F7388A</span><span class="p">:</span>
+        <span class="k">global</span> <span class="n">ip_buffer</span>
+        <span class="n">ip_buffer</span> <span class="o">=</span> <span class="n">dp</span><span class="p">.</span><span class="n">regs</span><span class="p">.</span><span class="n">rcx</span>
+    
+
+    <span class="k">if</span> <span class="n">address</span> <span class="o">==</span> <span class="mh">0x07FF9B6F738F3</span><span class="p">:</span>
+        <span class="n">found_ips</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">dp</span><span class="p">.</span><span class="nf">read_str</span><span class="p">(</span><span class="n">ip_buffer</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="sh">'</span><span class="s">utf-16</span><span class="sh">'</span><span class="p">))</span>
+
+<span class="n">dp</span><span class="p">.</span><span class="n">_uc</span><span class="p">.</span><span class="nf">hook_add</span><span class="p">(</span><span class="n">UC_HOOK_CODE</span><span class="p">,</span> <span class="n">hook_code</span><span class="p">,</span> <span class="n">user_data</span> <span class="o">=</span> <span class="p">[</span><span class="n">dp</span><span class="p">])</span>
+
+<span class="n">dp</span><span class="p">.</span><span class="nf">start</span><span class="p">(</span><span class="n">start_VA</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="n">end_VA</span><span class="p">)</span>
+
+<span class="nf">print</span><span class="p">(</span><span class="n">found_ips</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>With that, all the IPs were retrieved:</p>
+
+<pre style="word-wrap: break-word; white-space: pre-wrap;">
+['63[.]142[.]250[.]212', '150[.]95[.]66[.]124', '91[.]207[.]28[.]33', '172[.]104[.]251[.]154', '107[.]182[.]225[.]142', '185[.]157[.]82[.]211', '149[.]56[.]131[.]28', '196[.]218[.]30[.]83', '158[.]69[.]222[.]101', '45[.]176[.]232[.]124', '58[.]227[.]42[.]236', '212[.]24[.]98[.]99', '159[.]65[.]88[.]10', '189[.]126[.]111[.]200', '94[.]23[.]45[.]86', '51[.]254[.]140[.]238', '1[.]234[.]2[.]232', '1[.]234[.]21[.]73', '206[.]189[.]28[.]199', '164[.]68[.]99[.]3', '153[.]126[.]146[.]25', '46[.]55[.]222[.]11', '167[.]99[.]115[.]35', '134[.]122[.]66[.]193', '203[.]114[.]109[.]124', '51[.]91[.]76[.]89', '185[.]4[.]135[.]165', '79[.]137[.]35[.]198', '185[.]8[.]212[.]130', '213[.]241[.]20[.]155', '82[.]165[.]152[.]127', '119[.]193[.]124[.]41', '103[.]75[.]201[.]2', '201[.]94[.]166[.]162', '212[.]237[.]17[.]99', '103[.]70[.]28[.]102', '131[.]100[.]24[.]231', '209[.]250[.]246[.]206', '102[.]222[.]215[.]74', '5[.]9[.]116[.]246', '129[.]232[.]188[.]93', '216[.]158[.]226[.]206', '173[.]212[.]193[.]249', '101[.]50[.]0[.]91', '197[.]242[.]150[.]244', '27[.]54[.]89[.]58', '163[.]44[.]196[.]120', '45[.]118[.]115[.]99', '51[.]91[.]7[.]5', '110[.]232[.]117[.]186', '103[.]43[.]46[.]182', '146[.]59[.]226[.]45', '72[.]15[.]201[.]15', '167[.]172[.]253[.]162', '209[.]126[.]98[.]206', '151[.]106[.]112[.]196', '183[.]111[.]227[.]137', '160[.]16[.]142[.]56', '209[.]97[.]163[.]214', '45[.]235[.]8[.]30', '188[.]44[.]20[.]25', '77[.]81[.]247[.]144', '103[.]132[.]242[.]26']
+</pre>
+
+<p>Although utilising the above code for an automated configuration extractor might prove difficult, so I decided to poke around a bit more in this function and see if there was an easy opportunity to develop automation. I found that the IP data was initialised through these functions <i>(initially the function pointers were placed in an array and called in a later function - these functions generated the data from literal/immediate values, rather than storing them as data.)</i></p>
+
+<p><img src="/assets/emotet-config-extraction/automation.png" style="width: 90%;" /></p>
+
+<p><i>Example of one of the functions:</i></p>
+
+<p><img src="/assets/emotet-config-extraction/example_func.png" style="width: 90%;" /></p>
+
+<p>The way this array of function pointers was set up provided a good opportunity to develop regex that could extract these function pointers, which could subsequently be emulated. I decided to emulate the functions with Unicorn instead of Dumpulator, as Unicorn would not require a MiniDump of the process for it to work. As these functions were self-contained (did not make calls out to further functions or read from any global variables), implementing them in Unicorn was not difficult. All that was needed was to initialise the registers rcx and rdx with out buffers.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">unicorn</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="n">unicorn.x86_const</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="n">struct</span>
+<span class="kn">from</span> <span class="n">capstone</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="n">pefile</span>
+<span class="kn">import</span> <span class="n">re</span>
+<span class="kn">import</span> <span class="n">ctypes</span>
+
+<span class="n">ips</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">cap</span> <span class="o">=</span> <span class="nc">Cs</span><span class="p">(</span><span class="n">CS_ARCH_X86</span><span class="p">,</span> <span class="n">CS_MODE_64</span><span class="p">)</span>
+<span class="n">ALLOCATION_CHUNK_SIZE</span> <span class="o">=</span> <span class="mh">0x1000</span>
+
+
+<span class="k">def</span> <span class="nf">hook_code</span><span class="p">(</span><span class="n">uc</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">user_data</span><span class="p">):</span>
+    <span class="n">cur_code</span> <span class="o">=</span> <span class="n">uc</span><span class="p">.</span><span class="nf">mem_read</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+    <span class="n">instructions</span> <span class="o">=</span> <span class="n">cap</span><span class="p">.</span><span class="nf">disasm</span><span class="p">(</span><span class="n">cur_code</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">instruction</span> <span class="ow">in</span> <span class="n">instructions</span><span class="p">:</span>
+        <span class="c1">#print(f"{hex(instruction.address)}\t{instruction.mnemonic}\t{instruction.op_str}")
+</span>        <span class="k">if</span> <span class="n">instruction</span><span class="p">.</span><span class="n">mnemonic</span> <span class="o">==</span> <span class="sh">'</span><span class="s">retn</span><span class="sh">'</span> <span class="ow">or</span> <span class="n">instruction</span><span class="p">.</span><span class="n">mnemonic</span> <span class="o">==</span> <span class="sh">'</span><span class="s">ret</span><span class="sh">'</span><span class="p">:</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="n">uc</span><span class="p">.</span><span class="nf">mem_read</span><span class="p">(</span><span class="mh">0x10000</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+            <span class="n">ip</span> <span class="o">=</span> <span class="sh">''</span>
+            <span class="k">for</span> <span class="n">byte</span> <span class="ow">in</span> <span class="n">out</span><span class="p">:</span>
+                <span class="n">ip</span> <span class="o">+=</span> <span class="nf">str</span><span class="p">(</span><span class="n">byte</span><span class="p">)</span>
+                <span class="n">ip</span> <span class="o">+=</span> <span class="sh">'</span><span class="s">.</span><span class="sh">'</span>
+            <span class="n">ip</span> <span class="o">=</span> <span class="n">ip</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">ips</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">ip</span><span class="p">)</span>
+            <span class="nf">print</span><span class="p">(</span><span class="n">ip</span><span class="p">)</span>
+            <span class="n">uc</span><span class="p">.</span><span class="nf">emu_stop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">instruction</span><span class="p">.</span><span class="n">mnemonic</span> <span class="o">==</span> <span class="sh">'</span><span class="s">call</span><span class="sh">'</span><span class="p">:</span>
+            <span class="n">uc</span><span class="p">.</span><span class="nf">emu_stop</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">emulate_ip_resolver</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+    <span class="n">uc</span> <span class="o">=</span> <span class="nc">Uc</span><span class="p">(</span><span class="n">UC_ARCH_X86</span><span class="p">,</span> <span class="n">UC_MODE_64</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">hook_add</span><span class="p">(</span><span class="n">UC_HOOK_CODE</span><span class="p">,</span> <span class="n">hook_code</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_map</span><span class="p">(</span><span class="mh">0x10000</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">UC_PROT_ALL</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_map</span><span class="p">(</span><span class="mh">0x20000</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">UC_PROT_ALL</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">reg_write</span><span class="p">(</span><span class="n">UC_X86_REG_RCX</span><span class="p">,</span> <span class="mh">0x10000</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">reg_write</span><span class="p">(</span><span class="n">UC_X86_REG_RDX</span><span class="p">,</span> <span class="mh">0x20000</span><span class="p">)</span>
+
+    <span class="nf">emulate_func</span><span class="p">(</span><span class="n">uc</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">emulate_func</span><span class="p">(</span><span class="n">uc</span><span class="p">:</span> <span class="n">Uc</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">code_base_ptr</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+    <span class="c1"># Allocating memory for the code, and writing it
+</span>    <span class="n">allocation_base</span> <span class="o">=</span> <span class="n">code_base_ptr</span> <span class="o">&amp;</span> <span class="mb">0b1111_1111_1111_1111_1111_1111_1111_1111_0000_0000_0000_0000</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_map</span><span class="p">(</span><span class="n">allocation_base</span><span class="p">,</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">,</span> <span class="n">UC_PROT_ALL</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_write</span><span class="p">(</span><span class="n">allocation_base</span><span class="p">,</span> <span class="sa">b</span><span class="sh">'</span><span class="se">\x00</span><span class="sh">'</span> <span class="o">*</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">)</span>
+    <span class="n">allocation_end</span> <span class="o">=</span> <span class="n">allocation_base</span> <span class="o">+</span> <span class="n">ALLOCATION_CHUNK_SIZE</span>
+    <span class="c1"># Allocates more memory if the allocated memory is not enough for the function
+</span>    <span class="n">code_len</span> <span class="o">=</span> <span class="nf">len</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+    <span class="nf">while </span><span class="p">(</span><span class="n">code_len</span> <span class="o">+</span> <span class="n">code_base_ptr</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">allocation_end</span><span class="p">:</span> 
+        <span class="n">uc</span><span class="p">.</span><span class="nf">mem_map</span><span class="p">(</span><span class="n">allocation_end</span><span class="p">,</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">,</span> <span class="n">UC_PROT_ALL</span><span class="p">)</span>
+        <span class="n">uc</span><span class="p">.</span><span class="nf">mem_write</span><span class="p">(</span><span class="n">allocation_end</span><span class="p">,</span> <span class="sa">b</span><span class="sh">'</span><span class="se">\x00</span><span class="sh">'</span> <span class="o">*</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">)</span>
+        <span class="n">allocation_end</span> <span class="o">+=</span> <span class="n">ALLOCATION_CHUNK_SIZE</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_write</span><span class="p">(</span><span class="n">code_base_ptr</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+
+    <span class="n">STACK_SPACE</span> <span class="o">=</span> <span class="mh">0x2000</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_map</span><span class="p">(</span><span class="n">STACK_SPACE</span><span class="p">,</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">,</span> <span class="n">UC_PROT_ALL</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">mem_write</span><span class="p">(</span><span class="n">STACK_SPACE</span><span class="p">,</span> <span class="sa">b</span><span class="sh">'</span><span class="se">\x00</span><span class="sh">'</span> <span class="o">*</span> <span class="n">ALLOCATION_CHUNK_SIZE</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">reg_write</span><span class="p">(</span><span class="n">UC_X86_REG_ESP</span><span class="p">,</span> <span class="n">STACK_SPACE</span> <span class="o">+</span> <span class="n">ALLOCATION_CHUNK_SIZE</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)</span>
+    
+    <span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">Starting emulating main func</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">uc</span><span class="p">.</span><span class="nf">emu_start</span><span class="p">(</span><span class="n">code_base_ptr</span><span class="p">,</span> <span class="n">code_base_ptr</span> <span class="o">+</span> <span class="nf">len</span><span class="p">(</span><span class="n">code</span><span class="p">),</span> <span class="n">timeout</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">Finished Emulating</span><span class="sh">"</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">retrieve_func_addrs</span><span class="p">(</span><span class="n">pe</span><span class="p">):</span>
+    <span class="n">image_base</span> <span class="o">=</span> <span class="n">pe</span><span class="p">.</span><span class="n">OPTIONAL_HEADER</span><span class="p">.</span><span class="n">ImageBase</span>
+    <span class="k">for</span> <span class="n">section</span> <span class="ow">in</span> <span class="n">pe</span><span class="p">.</span><span class="n">sections</span><span class="p">:</span>
+        <span class="k">if</span> <span class="sa">b</span><span class="sh">'</span><span class="s">.text</span><span class="sh">'</span> <span class="ow">in</span> <span class="n">section</span><span class="p">.</span><span class="n">Name</span><span class="p">:</span>
+            <span class="n">emotet_content</span> <span class="o">=</span> <span class="n">section</span><span class="p">.</span><span class="nf">get_data</span><span class="p">()</span>
+            <span class="n">text_rva</span> <span class="o">=</span> <span class="n">section</span><span class="p">.</span><span class="n">VirtualAddress</span>
+    <span class="n">find_lea</span> <span class="o">=</span> <span class="n">re</span><span class="p">.</span><span class="nf">compile</span><span class="p">(</span><span class="sa">rb</span><span class="sh">'</span><span class="s">\x48\x8d\x05(.{4})\x48\x89</span><span class="sh">'</span><span class="p">)</span>
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">find_lea</span><span class="p">.</span><span class="nf">finditer</span><span class="p">(</span><span class="n">emotet_content</span><span class="p">)</span>
+
+    <span class="n">func_addrs</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">match</span> <span class="ow">in</span> <span class="n">matches</span><span class="p">:</span>
+        <span class="n">offset</span> <span class="o">=</span> <span class="n">match</span><span class="p">.</span><span class="nf">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">offset</span> <span class="o">=</span> <span class="n">struct</span><span class="p">.</span><span class="nf">unpack</span><span class="p">(</span><span class="sh">'</span><span class="s">&lt;I</span><span class="sh">'</span><span class="p">,</span> <span class="n">offset</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">offset</span> <span class="o">=</span> <span class="n">ctypes</span><span class="p">.</span><span class="nf">c_int</span><span class="p">(</span><span class="n">offset</span><span class="p">).</span><span class="n">value</span>
+        <span class="n">VA</span> <span class="o">=</span> <span class="n">match</span><span class="p">.</span><span class="nf">start</span><span class="p">()</span>
+        <span class="n">VA</span> <span class="o">+=</span> <span class="n">text_rva</span> <span class="o">+</span> <span class="n">image_base</span>
+        <span class="n">func_addr</span> <span class="o">=</span> <span class="n">VA</span> <span class="o">+</span> <span class="n">offset</span> <span class="o">+</span> <span class="mi">7</span>
+        <span class="n">func_addrs</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">func_addr</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">func_addrs</span>
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="n">pe</span> <span class="o">=</span> <span class="n">pefile</span><span class="p">.</span><span class="nc">PE</span><span class="p">(</span><span class="sa">r</span><span class="sh">"</span><span class="s">C:\Users\Kevin\Desktop\Emotet\emo_unpacked_1020000.bin</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">image_base</span> <span class="o">=</span> <span class="n">pe</span><span class="p">.</span><span class="n">OPTIONAL_HEADER</span><span class="p">.</span><span class="n">ImageBase</span>
+
+    <span class="n">func_addrs</span> <span class="o">=</span> <span class="nf">retrieve_func_addrs</span><span class="p">(</span><span class="n">pe</span><span class="p">)</span>
+    <span class="n">func_code_list</span> <span class="o">=</span> <span class="p">(</span><span class="n">pe</span><span class="p">.</span><span class="nf">get_data</span><span class="p">(</span><span class="n">func_addr</span> <span class="o">-</span> <span class="n">image_base</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">)</span> <span class="k">for</span> <span class="n">func_addr</span> <span class="ow">in</span> <span class="n">func_addrs</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">func_code</span> <span class="ow">in</span> <span class="n">func_code_list</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nf">emulate_ip_resolver</span><span class="p">(</span><span class="n">func_code</span><span class="p">,</span> <span class="mh">0x40_000</span><span class="p">)</span>
+            <span class="nf">print</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="nf">print</span><span class="p">(</span><span class="n">ips</span><span class="p">)</span>
+
+<span class="nf">main</span><span class="p">()</span>
+    
+</code></pre></div></div>
+
+<p>Another option to extract the config data would be to use a debugger and hook the snwprintf calls.</p>
+
+<p>Thank you for reading!</p>
+
+
+  </div><a class="u-url" href="/2025/05/07/emotet-config-extraction.html" hidden></a>
+</article>
+
+      </div>
+    </main><link id="fa-stylesheet" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@latest/css/all.min.css">
+
+<footer class="site-footer h-card">
+  <data class="u-url" value="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+      </div>
+      <div class="footer-col">
+        <p>Welcome to my blog, where I will be posting things I am doing related to malware analysis and reverse engineering.</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

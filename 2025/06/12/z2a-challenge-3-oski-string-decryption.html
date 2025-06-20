@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Z2A Challenge #3 – Oski Stealer String Decryption | Kevin Johnson’s Security Blog</title>
+<meta name="generator" content="Jekyll v4.4.1" />
+<meta property="og:title" content="Z2A Challenge #3 – Oski Stealer String Decryption" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="This is my belated write-up for Zero 2 Automated&#39;s Challenge #3 – Oski Stealer String Decryption." />
+<meta property="og:description" content="This is my belated write-up for Zero 2 Automated&#39;s Challenge #3 – Oski Stealer String Decryption." />
+<link rel="canonical" href="https://whiteultrazero.github.io/2025/06/12/z2a-challenge-3-oski-string-decryption.html" />
+<meta property="og:url" content="https://whiteultrazero.github.io/2025/06/12/z2a-challenge-3-oski-string-decryption.html" />
+<meta property="og:site_name" content="Kevin Johnson’s Security Blog" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2025-06-12T00:00:00+10:00" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Z2A Challenge #3 – Oski Stealer String Decryption" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"BlogPosting","dateModified":"2025-06-12T00:00:00+10:00","datePublished":"2025-06-12T00:00:00+10:00","description":"This is my belated write-up for Zero 2 Automated&#39;s Challenge #3 – Oski Stealer String Decryption.","headline":"Z2A Challenge #3 – Oski Stealer String Decryption","mainEntityOfPage":{"@type":"WebPage","@id":"https://whiteultrazero.github.io/2025/06/12/z2a-challenge-3-oski-string-decryption.html"},"url":"https://whiteultrazero.github.io/2025/06/12/z2a-challenge-3-oski-string-decryption.html"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="https://whiteultrazero.github.io/feed.xml" title="Kevin Johnson&apos;s Security Blog" /></head>
+<body><header class="site-header" role="banner">
+  <div class="wrapper">
+
+    <!-- Site title linking to home -->
+    <h1 class="site-title">
+      <a href="/">Kevin Johnson's Security Blog</a>
+    </h1>
+
+    <!-- Navigation -->
+    <nav class="site-nav" role="navigation" aria-label="Main navigation">
+      <ul class="nav-list" style="list-style:none; padding:0; margin:0; display:flex; align-items:center; gap:1rem;">
+        <li><a href="/">Home</a></li>
+
+        <!-- LinkedIn Icon Link -->
+        <li>
+          <a href="https://www.linkedin.com/in/kevin-johnson-28292125a" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" style="color:#0A66C2;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4.98 3.5C4.98 4.88 3.87 6 2.5 6S0 4.88 0 3.5 1.11 1 2.5 1 4.98 2.12 4.98 3.5zM.5 8H4.5V24H.5V8zM8.5 8H12.2V10.4H12.3C12.9 9.1 14.5 7.8 17 7.8C21 7.8 22 10.7 22 14.7V24H17V16.6C17 14.9 17 12.9 14.7 12.9C12.3 12.9 12 14.7 12 16.4V24H8V8H8.5Z"/>
+            </svg>
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+  </div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">Z2A Challenge #3 – Oski Stealer String Decryption</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2025-06-12T00:00:00+10:00" itemprop="datePublished">Jun 12, 2025
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p>This is my belated write-up for Zero 2 Automated's Challenge #3 – Oski Stealer String Decryption.</p>
+
+<p>The goal was to develop an automated string decryptor for the final payload. The sample is initially packed with a .NET packer which is why I was interested in this challenge as I wanted to get more reps with .NET samples.</p>
+
+<p>First Stage SHA256: 707adf85c61f5029e14aa27791010f2959e70c0fee182fe968d2eb7f2991797b</p>
+
+<h2>Unpacking the .NET Sample</h2>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/die_initial_sample.png" style="width: 90%;" /></p>
+
+<p>Initial triage showed it uses a known obfuscator, so I started by trying to run it through de4dot, which successfully produced a cleaned version.</p>
+
+<p>With .NET samples, I usually start by looking at cross-references to the <b>Assembly</b> class, since many samples use this to load additional payloads. Given that this sample is packed, it's definitely worth checking out.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/assembly_cross_references.png" style="width: 90%;" /></p>
+
+<p>Looking at references to assembly, there are four calls to methods from the class from non-library/runtime code.</p>
+
+<p>The most interesting one is a method I’ve named <b>Load_byte_array()</b>, which is just a wrapper around AppDomain.CurrentDomain.Load().</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/load_byte_array.png" style="width: 70%;" /></p>
+
+<p>Looking at the references to <b>Load_byte_array()</b> shows a method I named <b>retrieve_and_dec_rsrc()</b> as it can clearly be seen getting the resource <b>BayesMe</b>, then calling a decryption function on the resource.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/retrieve_and_dec_rsrc.png" style="width: 100%;" /></p>
+
+<p>This seemed like a good chance to dynamically retrieve the decrypted resource, so I set a breakpoint after the call to the decryption function, then dumped the local variable <i>array</i> that held the result.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/mz_magic.png" style="width: 70%;" /></p>
+
+<p>This appeared to be a valid executable file as the MZ magic was seen.</p>
+
+<p>Stepping out of the method showed immediate call to <b>Invoke()</b> and <b>Run()</b>, verifying it is not a dummy file and is actually invoked.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/invoke_and_run.png" style="width: 90%;" /></p>
+
+<p>The local variables debugging Window showed that the <i>methodInfo</i> variable is a reference to the method <b>EhgUZIvRw()</b>.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/method_info_debug.png" style="width: 80%;" /></p>
+
+<p>Searching for this method showed it belongs to the loaded assembly <b>FuncAttribute.dll</b></p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/func_attribute_method.png" style="width: 90%;" /></p>
+
+<p>This assembly looked decently obfuscated as well, so I tried running it through de4dot. It was not recognised as a known obfuscator so I skipped cleaning and just analysed it as-is.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/de4dot_unregonised.png" style="width: 70%;" /></p>
+
+<p>A quick look inside the methods it calls show that this method appears to load another assembly and invoke a method from it.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/loading_additional_stage.png" style="width: 100%;" /></p>
+
+<p>I set breakpoints on the Invoke and AssemblyLoad methods and ran the sample. 
+This showed it loading another assembly and calling the method <b>fQRwCeWyVS()</b> from it.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/method_fQRwCeWyVS.png" style="width: 70%;" /></p>
+
+<p>I dumped the binary and ran it through de4dot — which detected it as a <b>Reactor</b> protected sample, which it managed to successfully clean.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/reactor_cleaned.png" style="width: 70%;" /></p>
+
+<p>To make dynamic analysis easier, I ran the sample again and overwrote the variable passed to LoadAssembly with the cleaned de4dot sample. I did this by opening the cleaned sample in CyberChef and running the recipe '<i>to hex</i>'. Then in the debugging context I opened the <i>array</i> variable in the memory view and pasted over it.</p>
+
+<p>This made the decompilation a lot cleaner:</p>
+
+<p><i>Cleaned</i></p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/cleaned.png" style="width: 90%;" /></p>
+
+<p>vs</p>
+
+<p><i>Original</i></p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/original.png" style="width: 90%;" /></p>
+
+<p>This now showed the call to Invoke targeting the method <b>smethod_10()</b></p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/method_smethod10.png" style="width: 90%;" /></p>
+
+<p>I did some basic markup and which showed this sample had variety of functionalities, however it would use hardcoded flags to determine which components to actually execute.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/functionality_overview.png" style="width: 90%;" /></p>
+
+<p>These flags are set by the Class constructor /cctor.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/cctor.png" style="width: 90%;" /></p>
+
+<p>Stepping through the program shows that this specific sample calls <b>find_and_inject_process()</b>.</p>
+
+<p>This method uses unmanaged code to retrieve Win APIs to make the injection possible.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/retrieving_unmanaged_code.png" style="width: 90%;" /></p>
+
+<p>Of most interest within this method is the call to WriteProcessMemory, as the variable <i>byte_1</i> will contain a buffer that is injected into the victim process.  
+By setting a breakpoint on WriteProcessMemory, I saw that the buffer being injected is a C++ compiled executable, which is presumably the final payload.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/write_process_mem.png" style="width: 80%;" /></p>
+
+<h2>Final Payload and String Extraction</h2>
+
+<h3>Finding the Decryption Function</h3>
+
+<p>I began analysis by taking a quick look in PeStudio. This showed what appeared to be a large amount of encrypted strings in the <i>.rdata</i> section.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/pestudio_rdata.png" style="width: 80%;" /></p>
+
+<p>Since the goal is to decrypt the strings, I started by going to the <i>.rdata</i> section in IDA and finding cross references to the strings.</p>
+
+<p>The encrypted strings can easily be identified in IDA.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/ida_rdata.png" style="width: 80%;" /></p>
+
+<p>It looks like they are all passed to a central decryption function <b>decrypt_strings()</b>.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/decrypt_strings_xrefs.png" style="width: 80%;" /></p>
+
+<p>Although not the point of the challenge I did develop an IDA debugging script to immediately resolve all the strings, with no real reverse engineering required.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/resolved_debugging.png" style="width: 90%;" /></p>
+
+<h3>Analyzing the Decryption Function</h3>
+
+<p>Back to the actual challenge.</p>
+
+<p>The encrypted strings look to be base64 encoded, however inputting them into a base64 decoder did not return anything legible.  
+My initial hunch was that this could be a custom base64 encoding so I took a quick look around to try and find a modified base64 index string.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/base64_index_string.png" style="width: 70%;" /></p>
+
+<p>It does appear the sample uses a standard base64 index string, so this isn’t a custom variant. (The string above is referenced as a global within the decryption function).</p>
+
+<p>Looking deeper into the decryption function, showed lots of functions relating to C++ std::string handling such as small string optimization operations.</p>
+
+<p>As such I create a C++ std::string struct in IDA to help analyze this.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/ida_struct_std_string.png" style="width: 70%;" /></p>
+
+<p>This made the analysis of this function much easier, and the decryption flow became much clearer. The function base64-decodes the string, then passes it to another function that I initially labelled <b>looks_like_decryption()</b>.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/decryption_function_annotated.png" style="width: 90%;" /></p>
+
+<p>After taking a closer look at <b>looks_like_decryption()</b>, it was unmistakable as RC4. I should have looked closer earlier, as that would have saved me from reversing all the std::string handling.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/rc4.png" style="width: 90%;" /></p>
+
+<p>I verified my analysis with Cyberchef.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/cyberchef_verification_1.png" style="width: 100%;" /></p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/cyberchef_verification_2.png" style="width: 100%;" /></p>
+
+<h2>Automating String Extraction</h2>
+
+<p>I moved on to writing a script that would extract and decrypt the strings automatically.  
+From my analysis:</p>
+
+<ul>
+    <li>The RC4 key is an 18-byte ASCII string containing only digits.</li>
+    <li>The decryption function is the most-called function in the binary.</li>
+</ul>
+
+<p>With this it might be possible to develop regex to extract the RC4 key, and extract the encrypted strings by retrieving all the arguments to the most called function in the binary. This should be able to run headlessly with IDA, however I could not try it as I only have IDA home.</p>
+
+<p>With some proof of concept code I can successfully extract the RC4 key from this sample with regex.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/poc_regex.png" style="width: 90%;" /></p>
+
+<p>I can also identify the decryption function by using IDA to retrieve the function with the highest cross reference count.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/poc_func_extract.png" style="width: 90%;" /></p>
+
+<p>The final developed script can be seen working below, and should be able to be integrated into a fully automated workflow.</p>
+
+<p><img src="/assets/z2a-challenge-3-oski-string-decryption/final_script.png" style="width: 100%;" /></p>
+
+<p>The actual code is shown below:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">import</span> <span class="n">pefile</span>
+<span class="kn">from</span> <span class="n">binascii</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">import</span> <span class="n">re</span>
+<span class="kn">import</span> <span class="n">base64</span>
+<span class="kn">from</span> <span class="n">Crypto.Cipher</span> <span class="kn">import</span> <span class="n">ARC4</span>
+
+<span class="k">def</span> <span class="nf">retrive_rdata</span><span class="p">(</span><span class="n">fpath</span><span class="p">):</span>
+    <span class="n">oski</span> <span class="o">=</span> <span class="n">pefile</span><span class="p">.</span><span class="nc">PE</span><span class="p">(</span><span class="n">fpath</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">section</span> <span class="ow">in</span> <span class="n">oski</span><span class="p">.</span><span class="n">sections</span><span class="p">:</span>
+        <span class="k">if</span> <span class="sa">b</span><span class="sh">'</span><span class="s">.rdata</span><span class="sh">'</span> <span class="ow">in</span> <span class="n">section</span><span class="p">.</span><span class="n">Name</span><span class="p">:</span>
+            <span class="n">oski_rdata</span> <span class="o">=</span> <span class="n">section</span><span class="p">.</span><span class="nf">get_data</span><span class="p">()</span>
+            <span class="k">break</span>
+            
+    <span class="k">return</span> <span class="n">oski_rdata</span>
+<span class="k">def</span> <span class="nf">extract_rc4_key</span><span class="p">(</span><span class="n">rdata</span><span class="p">):</span>
+    <span class="n">matches</span> <span class="o">=</span> <span class="n">re</span><span class="p">.</span><span class="nf">findall</span><span class="p">(</span><span class="sa">rb</span><span class="sh">'</span><span class="s">[0-9]{12,32}\x00</span><span class="sh">'</span><span class="p">,</span> <span class="n">rdata</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="nf">len</span><span class="p">(</span><span class="n">matches</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Unsuccessful extracting key</span><span class="sh">'</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">None</span>
+        
+    <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">matches</span><span class="p">:</span>
+        <span class="nf">return </span><span class="p">(</span><span class="n">m</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">].</span><span class="nf">decode</span><span class="p">())</span>
+
+<span class="k">def</span> <span class="nf">get_most_called_func</span><span class="p">():</span>
+    <span class="n">functionCount</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">func</span> <span class="ow">in</span> <span class="nc">Functions</span><span class="p">():</span>
+        <span class="n">xref_count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">xref</span> <span class="ow">in</span> <span class="nc">XrefsTo</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+            <span class="n">xref_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">functionCount</span><span class="p">.</span><span class="nf">append</span><span class="p">((</span><span class="n">func</span><span class="p">,</span> <span class="n">xref_count</span><span class="p">))</span>
+        
+    <span class="n">funcs_sorted</span> <span class="o">=</span> <span class="p">(</span><span class="nf">sorted</span><span class="p">(</span><span class="n">functionCount</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">item</span><span class="p">:</span> <span class="n">item</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="n">most_called</span> <span class="o">=</span> <span class="n">funcs_sorted</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span>
+    <span class="k">return</span> <span class="n">most_called</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">b64_decode_rc4_decrypt</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">enc_string</span><span class="p">):</span>
+    <span class="n">key_bytes</span> <span class="o">=</span> <span class="n">key</span><span class="p">.</span><span class="nf">encode</span><span class="p">(</span><span class="sh">'</span><span class="s">utf-8</span><span class="sh">'</span><span class="p">)</span>
+    <span class="n">encrypted_bytes</span> <span class="o">=</span> <span class="n">base64</span><span class="p">.</span><span class="nf">b64decode</span><span class="p">(</span><span class="n">enc_string</span><span class="p">)</span>
+    <span class="n">cipher</span> <span class="o">=</span> <span class="n">ARC4</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">key_bytes</span><span class="p">)</span>
+    <span class="n">decrypted_bytes</span> <span class="o">=</span> <span class="n">cipher</span><span class="p">.</span><span class="nf">decrypt</span><span class="p">(</span><span class="n">encrypted_bytes</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">decrypted_bytes</span><span class="p">.</span><span class="nf">decode</span><span class="p">(</span><span class="sh">'</span><span class="s">utf-8</span><span class="sh">'</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="sh">'</span><span class="s">replace</span><span class="sh">'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="n">fpath</span> <span class="o">=</span> <span class="sa">r</span><span class="sh">"</span><span class="s">C:\Users\Kevin\Desktop\Samples\z2a challenge oski final payload\oski_final_payload.bin</span><span class="sh">"</span>
+    
+    <span class="n">rdata</span> <span class="o">=</span> <span class="nf">retrive_rdata</span><span class="p">(</span><span class="n">fpath</span><span class="p">)</span>
+    
+    <span class="n">rc4_key</span> <span class="o">=</span> <span class="nf">extract_rc4_key</span><span class="p">(</span><span class="n">rdata</span><span class="p">)</span>
+    
+    <span class="n">decrypt_strings_func_ea</span> <span class="o">=</span> <span class="nf">get_most_called_func</span><span class="p">()</span>
+    
+    <span class="n">enc_strings</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">xref</span> <span class="ow">in</span> <span class="nc">CodeRefsTo</span><span class="p">(</span><span class="n">decrypt_strings_func_ea</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="n">arg_insn</span> <span class="o">=</span> <span class="n">idc</span><span class="p">.</span><span class="nf">prev_head</span><span class="p">(</span><span class="n">xref</span><span class="p">)</span>
+        <span class="n">enc_str_ea</span> <span class="o">=</span> <span class="nf">get_operand_value</span><span class="p">(</span><span class="n">arg_insn</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">enc_str</span> <span class="o">=</span> <span class="n">ida_bytes</span><span class="p">.</span><span class="nf">get_strlit_contents</span><span class="p">(</span><span class="n">enc_str_ea</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">ida_nalt</span><span class="p">.</span><span class="n">STRTYPE_C</span><span class="p">,</span> <span class="mi">0</span><span class="p">).</span><span class="nf">decode</span><span class="p">(</span><span class="sh">'</span><span class="s">utf-8</span><span class="sh">'</span><span class="p">)</span>
+        <span class="nf">print</span><span class="p">(</span><span class="nf">b64_decode_rc4_decrypt</span><span class="p">(</span><span class="n">rc4_key</span><span class="p">,</span> <span class="n">enc_str</span><span class="p">))</span>
+        
+<span class="nf">main</span><span class="p">()</span>
+
+</code></pre></div></div>
+
+  </div><a class="u-url" href="/2025/06/12/z2a-challenge-3-oski-string-decryption.html" hidden></a>
+</article>
+
+      </div>
+    </main><link id="fa-stylesheet" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@latest/css/all.min.css">
+
+<footer class="site-footer h-card">
+  <data class="u-url" value="/"></data>
+
+  <div class="wrapper">
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col">
+      </div>
+      <div class="footer-col">
+        <p>Welcome to my blog, where I will be posting things I am doing related to malware analysis and reverse engineering.</p>
+      </div>
+    </div>
+
+    <div class="social-links"><ul class="social-media-list"></ul>
+</div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>
